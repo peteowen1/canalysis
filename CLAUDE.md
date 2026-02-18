@@ -41,8 +41,7 @@ The package follows a functional pipeline architecture with 5 main steps:
 ### Key Design Patterns
 
 - **Caching**: Uses `memoise` with disk caching for expensive OSM queries in `tempdir()/canalysis_cache`
-- **Parallel Processing**: Optional parallel execution using `furrr` for metric calculation
-- **Spatial Operations**: Handles CRS transformations, geometric intersections, and UTM projection for accurate area calculations
+- **Vectorized Spatial Operations**: Uses single `st_intersection()` and `st_area()` calls on entire sf objects with UTM 30N (EPSG:32630) for accurate UK-wide calculations
 - **Error Handling**: Validates geometries using `sf::st_make_valid()`
 - **Population Integration**: Matches OSM administrative boundary names to official population data with fuzzy matching for name variations
 - **Administrative Classification**: Distinguishes between Metropolitan Districts, Unitary Authorities, and Combined Authorities (including Greater London)
@@ -57,14 +56,14 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 
 ## File Structure
 
-- `R/utils.R` - Shared utilities (ensure_chr, ensure_chr_cols, sf_bind_rows, utm_epsg_for)
-- `R/fetch.R` - OSM data acquisition (setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons)
+- `R/utils.R` - Shared utilities (suppress_sf_attr_warnings, ensure_chr, ensure_chr_cols, sf_bind_rows, utm_epsg_for)
+- `R/fetch.R` - OSM data acquisition (clear_cache, setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons)
 - `R/metrics.R` - Computation and orchestration (calculate_canal_metrics, rank_uk_cities_by_canals)
 - `R/plot.R` - Visualisation (plot_city_canals_map, plot_all_city_polygons)
 - `inst/extdata/uk_metropolitan_districts.csv` - Population data for UK administrative areas (151 areas including metropolitan districts, unitary authorities, metropolitan counties, and traditional counties)
 - `analysis/step_by_step_analysis.R` - Script for debugging pipeline execution step-by-step
-- `analysis/analysis_helpers.R` - Alternative pipeline runner with intermediate result caching (run_step, save/load_intermediate_result, run_full_analysis_with_caching)
-- `analysis/canal-search.R` - Canal search exploration script
+- `analysis/canal-search.R` - Load cached intermediate data and explore results
+- `analysis/profile_pipeline.R` - Profile each pipeline step to find bottlenecks
 - `tests/testthat/` - Test suite (requires internet connectivity)
 - `vignettes/` - Package vignette stubs (getting-started.Rmd is a placeholder)
 
@@ -77,14 +76,19 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 
 ## Output Data Structure
 
-The main analysis returns a tibble with columns: `city`, `admin_type`, `population`, `area_km2`, `length_m`, `length_km`, `length_mi`, `density_km_per_km2`, `population_density_per_km2`. Note: `length_m` is a `units`-class column; analysis scripts typically drop it before export.
+The main analysis returns a tibble with columns: `city`, `admin_type`, `population`, `area_km2`, `length_km`, `length_mi`, `density_km_per_km2`, `population_density_per_km2`.
 
 ## Gotchas
 
 - **CSV dual-path lookup**: `get_city_admin_polygons()` first tries `system.file("extdata", ...)` (for installed package) then falls back to `inst/extdata/` (for development). Both paths now resolve to the same file.
 
+## Analysis Scripts Conventions
+
+- **No function definitions** in `analysis/` scripts — all reusable functions belong in `R/`. Analysis scripts are for interactive workflows only (sourcing, exploring, profiling).
+- **Always use `devtools::load_all()`**, never `library(canalysis)`, in analysis scripts.
+- **RStudio document outline**: Every analysis script must use `# Section Name ----` headers for navigability in the RStudio outline pane.
+
 ## Tool Permissions
 
 - Claude Code has full read access to all files and folders within this repository directory
 - No permission prompts are needed for reading any files in the canalysis project
-- **NEVER run R code via Bash tool** - R segfaults frequently in this environment, use Read tool to examine code instead

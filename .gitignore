@@ -4,5 +4,6 @@
 .Ruserdata
 inst/doc
 .claude/
+.claude.local.md
 rosm.cache/
 analysis/cache/
