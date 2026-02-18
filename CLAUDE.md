@@ -28,7 +28,7 @@ The package follows a functional pipeline architecture with 5 main steps:
 
 1. **setup_uk_bbox()** - Configure Overpass API and get UK bounding box
 2. **fetch_uk_canals()** - Download canal geometries from OSM
-3. **fetch_uk_cities()** - Download full administrative boundary polygons (metropolitan districts, unitary authorities, Greater London) from OSM
+3. **fetch_uk_cities()** - Download full administrative boundary polygons (metropolitan districts, unitary authorities, combined authorities, Greater London) from OSM
 4. **get_city_admin_polygons()** - Enrich administrative polygons with population data from CSV and calculate areas
 5. **calculate_canal_metrics()** - Compute canal length, area, density, and population metrics using spatial intersection
 
@@ -45,7 +45,7 @@ The package follows a functional pipeline architecture with 5 main steps:
 - **Spatial Operations**: Handles CRS transformations, geometric intersections, and UTM projection for accurate area calculations
 - **Error Handling**: Validates geometries using `sf::st_make_valid()`
 - **Population Integration**: Matches OSM administrative boundary names to official population data with fuzzy matching for name variations
-- **Administrative Classification**: Distinguishes between Metropolitan Districts, Unitary Authorities, and Greater London
+- **Administrative Classification**: Distinguishes between Metropolitan Districts, Unitary Authorities, and Combined Authorities (including Greater London)
 
 ### Data Flow
 
@@ -61,12 +61,12 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 - `R/fetch.R` - OSM data acquisition (setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons)
 - `R/metrics.R` - Computation and orchestration (calculate_canal_metrics, rank_uk_cities_by_canals)
 - `R/plot.R` - Visualisation (plot_city_canals_map, plot_all_city_polygons)
-- `inst/extdata/uk_metropolitan_districts.csv` - Population data for UK administrative areas (122 areas)
+- `inst/extdata/uk_metropolitan_districts.csv` - Population data for UK administrative areas (151 areas including metropolitan districts, unitary authorities, metropolitan counties, and traditional counties)
 - `analysis/step_by_step_analysis.R` - Script for debugging pipeline execution step-by-step
-- `analysis/analysis_helpers.R` - Helper functions for analysis scripts
+- `analysis/analysis_helpers.R` - Alternative pipeline runner with intermediate result caching (run_step, save/load_intermediate_result, run_full_analysis_with_caching)
 - `analysis/canal-search.R` - Canal search exploration script
 - `tests/testthat/` - Test suite (requires internet connectivity)
-- `vignettes/` - Package documentation and examples
+- `vignettes/` - Package vignette stubs (getting-started.Rmd is a placeholder)
 
 ## Development Notes
 
@@ -74,9 +74,10 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 - Analysis scripts in `analysis/` provide debugging and step-by-step execution capabilities
 - Intermediate results can be cached in `analysis/cache/` for development efficiency
 - Uses roxygen2 for documentation generation
+
 ## Output Data Structure
 
-The main analysis returns a tibble with columns: `city`, `admin_type`, `population`, `area_km2`, `length_km`, `length_mi`, `density_km_per_km2`, `population_density_per_km2`.
+The main analysis returns a tibble with columns: `city`, `admin_type`, `population`, `area_km2`, `length_m`, `length_km`, `length_mi`, `density_km_per_km2`, `population_density_per_km2`. Note: `length_m` is a `units`-class column; analysis scripts typically drop it before export.
 
 ## Gotchas
 
