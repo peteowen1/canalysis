@@ -16,16 +16,13 @@ Description: Ranks UK cities by canal length, area coverage, and canal density
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
-Imports: 
+Imports:
     cachem,
     dplyr,
-    furrr,
-    future,
     ggplot2,
     ggspatial,
     memoise,
     osmdata,
-    parallel,
     purrr,
     scales,
     sf,

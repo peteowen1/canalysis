@@ -1,3 +1,23 @@
+# Persistent cache directory (survives R restarts)
+.cache_dir <- function() {
+  d <- tools::R_user_dir("canalysis", "cache")
+  if (!dir.exists(d)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  d
+}
+
+#' Clear cached OSM data
+#'
+#' Removes the persistent disk cache used by fetch_uk_canals() and fetch_uk_cities().
+#'
+#' @return The cache directory path (invisibly)
+#' @export
+clear_cache <- function() {
+  d <- tools::R_user_dir("canalysis", "cache")
+  if (dir.exists(d)) unlink(d, recursive = TRUE)
+  message("Cache cleared: ", d)
+  invisible(d)
+}
+
 #' Setup UK bounding box for analysis
 #'
 #' Configures Overpass URL and retrieves UK bounding box coordinates.
@@ -26,39 +46,38 @@ setup_uk_bbox <- function(overpass_url = NULL) {
 #' @return sf object with filtered canal lines
 #' @export
 fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
-  if (use_cache) {
-    cache_dir <- file.path(tempdir(), "canalysis_cache")
-    if (!dir.exists(cache_dir)) dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
-
-    fetch_canals_internal <- function(bbox) {
-      q_canals <- osmdata::opq(bbox = bbox, timeout = 450) |>
-        osmdata::add_osm_feature("waterway", "canal")
-      osmdata::osmdata_sf(q_canals)
-    }
-
-    fetch_canals_cached <- memoise::memoise(fetch_canals_internal,
-                                            cache = cachem::cache_disk(cache_dir))
-    dat_canals <- fetch_canals_cached(uk_bb_vec)
-  } else {
-    q_canals <- osmdata::opq(bbox = uk_bb_vec, timeout = 450) |>
+  .fetch_and_process_canals <- function(bbox) {
+    q_canals <- osmdata::opq(bbox = bbox, timeout = 450) |>
       osmdata::add_osm_feature("waterway", "canal")
     dat_canals <- osmdata::osmdata_sf(q_canals)
-  }
-  result <- dat_canals$osm_lines |>
-    ensure_chr_cols(c("disused","abandoned","proposed","canal")) |>
-    dplyr::filter(is.na(disused)  | disused  != "yes",
-                  is.na(abandoned)| abandoned!= "yes",
-                  is.na(proposed) | proposed != "yes",
-                  is.na(canal)    | !(canal %in% c("drain","irrigation"))) |>
-    dplyr::distinct(osm_id, .keep_all = TRUE) |>
-    sf::st_make_valid()
 
-  # Ensure WGS84 CRS is set (OSM data should be in WGS84)
-  if (is.na(sf::st_crs(result))) {
-    result <- sf::st_set_crs(result, 4326)
+    filtered <- dat_canals$osm_lines |>
+      ensure_chr_cols(c("disused","abandoned","proposed","canal")) |>
+      dplyr::filter(is.na(disused)  | disused  != "yes",
+                    is.na(abandoned)| abandoned!= "yes",
+                    is.na(proposed) | proposed != "yes",
+                    is.na(canal)    | !(canal %in% c("drain","irrigation"))) |>
+      dplyr::distinct(osm_id, .keep_all = TRUE)
+
+    # Strip to geometry-only sf — downstream only needs line geometries,
+    # not the dozens of OSM tag columns. This speeds up transform/intersection.
+    result <- sf::st_sf(geometry = sf::st_geometry(filtered)) |>
+      sf::st_make_valid()
+
+    # Ensure WGS84 CRS is set (OSM data should be in WGS84)
+    if (is.na(sf::st_crs(result))) {
+      result <- sf::st_set_crs(result, 4326)
+    }
+    result
   }
 
-  result
+  if (use_cache) {
+    cached_fn <- memoise::memoise(.fetch_and_process_canals,
+                                  cache = cachem::cache_disk(.cache_dir()))
+    cached_fn(uk_bb_vec)
+  } else {
+    .fetch_and_process_canals(uk_bb_vec)
+  }
 }
 
 # Internal helper to run the 4 OSM admin boundary queries
@@ -105,64 +124,66 @@ fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
 #' @export
 fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
 
+  .fetch_and_process_cities <- function(bbox) {
+    dat_all <- .fetch_admin_boundaries(bbox)
+
+    # Strip each OSM result to name + geometry BEFORE binding to avoid
+    # accumulating dozens of OSM tag columns (prevents 914 MB OOM crash)
+    .strip_osm <- function(sf_obj) {
+      if (is.null(sf_obj) || nrow(sf_obj) == 0) return(NULL)
+      sf_obj[, c("name", "geometry")]
+    }
+
+    metro_polys <- sf_bind_rows(list(.strip_osm(dat_all$metro$osm_multipolygons), .strip_osm(dat_all$metro$osm_polygons)))
+    if (!is.null(metro_polys) && nrow(metro_polys) > 0) {
+      metro_polys$admin_type <- "Metropolitan District"
+    }
+
+    unitary_polys <- if (!is.null(dat_all$unitary)) sf_bind_rows(list(.strip_osm(dat_all$unitary$osm_multipolygons), .strip_osm(dat_all$unitary$osm_polygons))) else NULL
+    if (!is.null(unitary_polys) && nrow(unitary_polys) > 0) {
+      unitary_polys$admin_type <- "Unitary Authority"
+    }
+
+    combined_polys <- sf_bind_rows(list(.strip_osm(dat_all$combined$osm_multipolygons), .strip_osm(dat_all$combined$osm_polygons)))
+    if (!is.null(combined_polys) && nrow(combined_polys) > 0) {
+      combined_polys$admin_type <- "Combined Authority"
+    }
+
+    london_polys <- sf_bind_rows(list(.strip_osm(dat_all$london$osm_multipolygons), .strip_osm(dat_all$london$osm_polygons)))
+    if (!is.null(london_polys) && nrow(london_polys) > 0) {
+      london_polys$admin_type <- "Combined Authority"  # Greater London is also a combined authority
+    }
+
+    all_polys <- sf_bind_rows(list(metro_polys, unitary_polys, combined_polys, london_polys))
+
+    if (is.null(all_polys) || nrow(all_polys) == 0) {
+      stop("No metropolitan districts, unitary authorities, or combined authorities found")
+    }
+
+    result <- all_polys |>
+      dplyr::mutate(name = as.character(name)) |>
+      dplyr::filter(!is.na(name), !sf::st_is_empty(geometry)) |>
+      sf::st_make_valid()
+
+    # Ensure WGS84 CRS is set (OSM data should be in WGS84)
+    if (is.na(sf::st_crs(result))) {
+      result <- sf::st_set_crs(result, 4326)
+    }
+
+    result |>
+      dplyr::select(name, admin_type, geometry)
+  }
+
   if (use_cache) {
-    cache_dir <- file.path(tempdir(), "canalysis_cache")
-    if (!dir.exists(cache_dir)) dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
-
-    fetch_cached <- memoise::memoise(.fetch_admin_boundaries,
-                                     cache = cachem::cache_disk(cache_dir))
-    dat_all <- fetch_cached(uk_bb_vec)
+    cached_fn <- memoise::memoise(.fetch_and_process_cities,
+                                  cache = cachem::cache_disk(.cache_dir()))
+    result <- cached_fn(uk_bb_vec)
   } else {
-    dat_all <- .fetch_admin_boundaries(uk_bb_vec)
+    result <- .fetch_and_process_cities(uk_bb_vec)
   }
 
-  # Combine metropolitan districts, unitary authorities, and combined authorities polygons
-  metro_polys <- sf_bind_rows(list(dat_all$metro$osm_multipolygons, dat_all$metro$osm_polygons))
-  if (!is.null(metro_polys) && nrow(metro_polys) > 0) {
-    metro_polys$admin_type <- "Metropolitan District"
-  }
-
-  unitary_polys <- if (!is.null(dat_all$unitary)) sf_bind_rows(list(dat_all$unitary$osm_multipolygons, dat_all$unitary$osm_polygons)) else NULL
-  if (!is.null(unitary_polys) && nrow(unitary_polys) > 0) {
-    unitary_polys$admin_type <- "Unitary Authority"
-  }
-
-  combined_polys <- sf_bind_rows(list(dat_all$combined$osm_multipolygons, dat_all$combined$osm_polygons))
-  if (!is.null(combined_polys) && nrow(combined_polys) > 0) {
-    combined_polys$admin_type <- "Combined Authority"
-  }
-
-  london_polys <- sf_bind_rows(list(dat_all$london$osm_multipolygons, dat_all$london$osm_polygons))
-  if (!is.null(london_polys) && nrow(london_polys) > 0) {
-    london_polys$admin_type <- "Combined Authority"  # Greater London is also a combined authority
-  }
-
-  all_polys <- sf_bind_rows(list(metro_polys, unitary_polys, combined_polys, london_polys))
-
-  if (is.null(all_polys) || nrow(all_polys) == 0) {
-    stop("No metropolitan districts, unitary authorities, or combined authorities found")
-  }
-
-  result <- all_polys |>
-    dplyr::mutate(name = as.character(name)) |>
-    dplyr::filter(!is.na(name), !sf::st_is_empty(geometry)) |>
-    sf::st_make_valid()
-
-  # Ensure WGS84 CRS is set (OSM data should be in WGS84)
-  if (is.na(sf::st_crs(result))) {
-    result <- sf::st_set_crs(result, 4326)
-  }
-
-  message("Found ", nrow(result), " administrative areas (",
-          ifelse(is.null(metro_polys), 0, nrow(metro_polys)), " metropolitan districts + ",
-          ifelse(is.null(unitary_polys), 0, nrow(unitary_polys)), " unitary authorities + ",
-          ifelse(is.null(combined_polys), 0, nrow(combined_polys)), " combined authorities + ",
-          ifelse(is.null(london_polys), 0, nrow(london_polys)), " Greater London)")
-
-  # Return the full administrative polygons, not centroids
-  result |>
-    dplyr::select(name, admin_type, geometry) |>
-    sf::st_make_valid()
+  message("Found ", nrow(result), " administrative areas")
+  result
 }
 
 
@@ -278,11 +299,9 @@ get_city_admin_polygons <- function(admin_polys) {
   }
 
   # Add area in km² using UTM projection for accurate area calculation
-  result$area_km2 <- purrr::map_dbl(result$geometry, function(geom) {
-    poly <- sf::st_sf(geometry = sf::st_sfc(geom, crs = sf::st_crs(result)))
-    epsg <- utm_epsg_for(poly)
-    units::drop_units(units::set_units(sf::st_area(sf::st_transform(poly, epsg)), "km^2"))
-  })
+  # Single vectorized transform + area call (UTM 30N covers all UK)
+  result_utm <- sf::st_transform(result, 32630)
+  result$area_km2 <- as.numeric(units::set_units(sf::st_area(result_utm), "km^2"))
 
   # Filter out places with very small areas (< 0.1 km²) or missing/invalid population data for small areas
   result <- result |>
