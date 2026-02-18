@@ -53,13 +53,15 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 
 **Key Data Sources:**
 - **OpenStreetMap**: Administrative boundaries (metro districts, unitary authorities, Greater London) and canal geometries
-- **CSV Population Data**: `data/uk_metropolitan_districts.csv` containing official population estimates for UK administrative areas
+- **CSV Population Data**: `inst/extdata/uk_metropolitan_districts.csv` containing official population estimates for UK administrative areas
 
 ## File Structure
 
 - `R/utils.R` - Shared utilities (ensure_chr, ensure_chr_cols, sf_bind_rows, utm_epsg_for)
-- `R/uk_canals.R` - Core pipeline functions (setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons, calculate_canal_metrics), high-level pipeline orchestrator (rank_uk_cities_by_canals), and plotting functions (plot_city_canals_map, plot_all_city_polygons)
-- `data/uk_metropolitan_districts.csv` - Population data for UK administrative areas (122 areas)
+- `R/fetch.R` - OSM data acquisition (setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons)
+- `R/metrics.R` - Computation and orchestration (calculate_canal_metrics, rank_uk_cities_by_canals)
+- `R/plot.R` - Visualisation (plot_city_canals_map, plot_all_city_polygons)
+- `inst/extdata/uk_metropolitan_districts.csv` - Population data for UK administrative areas (122 areas)
 - `analysis/step_by_step_analysis.R` - Script for debugging pipeline execution step-by-step
 - `analysis/analysis_helpers.R` - Helper functions for analysis scripts
 - `analysis/canal-search.R` - Canal search exploration script
@@ -78,7 +80,7 @@ The main analysis returns a tibble with columns: `city`, `admin_type`, `populati
 
 ## Gotchas
 
-- **CSV dual-path lookup**: `get_city_admin_polygons()` first tries `system.file("extdata", ...)` (for installed package) then falls back to `data/` (for development). The CSV lives at `data/` — it would need to be at `inst/extdata/` for the installed package path to work.
+- **CSV dual-path lookup**: `get_city_admin_polygons()` first tries `system.file("extdata", ...)` (for installed package) then falls back to `inst/extdata/` (for development). Both paths now resolve to the same file.
 
 ## Tool Permissions
 

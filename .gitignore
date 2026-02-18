@@ -6,5 +6,3 @@ inst/doc
 .claude/
 rosm.cache/
 analysis/cache/
-R/temp_function.txt
-man/hello.Rd
