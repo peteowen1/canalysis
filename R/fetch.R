@@ -6,11 +6,14 @@
 #' @return Numeric vector with UK bounding box coordinates (xmin, ymin, xmax, ymax)
 #' @export
 setup_uk_bbox <- function(overpass_url = NULL) {
+  old_opts <- options(osmdata_bbox = NULL)
+  on.exit(options(old_opts), add = TRUE)
   if (!is.null(overpass_url)) options(osmdata_overpass_url = overpass_url)
-  options(osmdata_bbox = NULL)
 
-  uk_bb_matrix <- tryCatch(osmdata::getbb("United Kingdom", format_out = "matrix"), error = function(e) NULL)
-  stopifnot(!is.null(uk_bb_matrix))
+  uk_bb_matrix <- tryCatch(
+    osmdata::getbb("United Kingdom", format_out = "matrix"),
+    error = function(e) stop("Failed to fetch UK bounding box: ", conditionMessage(e), call. = FALSE)
+  )
   as.numeric(c(uk_bb_matrix[1,1], uk_bb_matrix[2,1], uk_bb_matrix[1,2], uk_bb_matrix[2,2]))
 }
 
@@ -111,11 +114,6 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
     dat_all <- fetch_cached(uk_bb_vec)
   } else {
     dat_all <- .fetch_admin_boundaries(uk_bb_vec)
-
-    message("Found ", nrow(dat_all$metro$osm_multipolygons), " metro areas")
-    message("Found ", nrow(dat_all$unitary$osm_multipolygons), " unitary areas")
-    message("Found ", nrow(dat_all$combined$osm_multipolygons), " combined authorities")
-    message("Found ", nrow(dat_all$london$osm_multipolygons), " Greater London areas")
   }
 
   # Combine metropolitan districts, unitary authorities, and combined authorities polygons
@@ -186,7 +184,12 @@ get_city_admin_polygons <- function(admin_polys) {
   }
 
   if (file.exists(csv_path)) {
-    pop_data <- utils::read.csv(csv_path, stringsAsFactors = FALSE)
+    pop_data <- utils::read.csv(csv_path, stringsAsFactors = FALSE, check.names = FALSE)
+    expected_cols <- c("Code", "Name", "Geography")
+    if (length(names(pop_data)) < 6 || !all(expected_cols %in% names(pop_data))) {
+      stop("Population CSV has unexpected structure. Expected columns: Code, Name, Geography, ...",
+           "\nGot: ", paste(names(pop_data), collapse = ", "), call. = FALSE)
+    }
     names(pop_data) <- c("Code", "Name", "Geography", "Area_sq_km", "Population_mid_2022", "People_per_sq_km")
 
     # Clean names for joining
@@ -222,19 +225,35 @@ get_city_admin_polygons <- function(admin_polys) {
       ) |>
       dplyr::mutate(population = dplyr::coalesce(as.numeric(pop_exact), as.numeric(pop_clean)))
 
-    # Join 3: fuzzy substring fallback for remaining NAs
+    # Fuzzy substring fallback for remaining NAs — require minimum name length
+    # and collect all candidates to pick the best match
     unmatched <- which(is.na(polys$population))
     for (idx in unmatched) {
       city_clean <- polys$clean_name_lower[idx]
+      if (nchar(city_clean) < 4) next  # skip very short names to avoid false matches
+      candidates <- integer(0)
       for (i in seq_len(nrow(pop_data))) {
         csv_clean <- pop_data$clean_name_lower[i]
-        if (grepl(city_clean, csv_clean, ignore.case = TRUE) ||
-            grepl(csv_clean, city_clean, ignore.case = TRUE)) {
-          pop_val <- pop_data$Population_mid_2022[i]
-          if (!is.na(pop_val)) {
-            polys$population[idx] <- as.numeric(pop_val)
-            break
-          }
+        if (grepl(city_clean, csv_clean, fixed = TRUE) ||
+            grepl(csv_clean, city_clean, fixed = TRUE)) {
+          candidates <- c(candidates, i)
+        }
+      }
+      if (length(candidates) == 1) {
+        pop_val <- pop_data$Population_mid_2022[candidates]
+        if (!is.na(pop_val)) {
+          polys$population[idx] <- as.numeric(pop_val)
+          message("Fuzzy population match: '", polys$city[idx], "' -> '", pop_data$Name[candidates], "'")
+        }
+      } else if (length(candidates) > 1) {
+        # Multiple fuzzy matches — pick the one with the closest name length
+        dists <- abs(nchar(pop_data$clean_name_lower[candidates]) - nchar(city_clean))
+        best <- candidates[which.min(dists)]
+        pop_val <- pop_data$Population_mid_2022[best]
+        if (!is.na(pop_val)) {
+          polys$population[idx] <- as.numeric(pop_val)
+          message("Fuzzy population match (best of ", length(candidates), "): '",
+                  polys$city[idx], "' -> '", pop_data$Name[best], "'")
         }
       }
     }

@@ -36,7 +36,7 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
     # Use pre-transformed canals
     canals_sub <- canals_transformed[sf::st_intersects(canals_transformed, bb_sfc, sparse = FALSE)[,1], ]
     if (nrow(canals_sub) == 0) return(units::set_units(0, "m"))
-    clip <- suppressWarnings(sf::st_intersection(sf::st_geometry(canals_sub), sf::st_geometry(poly)))
+    clip <- suppress_sf_attr_warnings(sf::st_intersection(sf::st_geometry(canals_sub), sf::st_geometry(poly)))
     if (length(clip) == 0) return(units::set_units(0, "m"))
     clip <- sf::st_as_sf(tibble::tibble(geometry = clip)) |>
       dplyr::filter(!sf::st_is_empty(geometry))
@@ -48,29 +48,18 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
   city_crs_code <- sf::st_crs(city_polys)$epsg
   if (is.na(city_crs_code)) city_crs_code <- 4326
 
-  if (use_parallel) {
-    city_polys |>
-      dplyr::mutate(
-        length_m   = furrr::future_map(geometry, canal_length_for_poly, city_crs_code, .progress = TRUE),
-        length_km  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "km"))),
-        length_mi  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "mi"))),
-        density_km_per_km2 = dplyr::if_else(area_km2 > 0, length_km / area_km2, NA_real_),
-        population_density_per_km2 = dplyr::if_else(area_km2 > 0 & !is.na(population), population / area_km2, NA_real_)
-      ) |>
-      sf::st_drop_geometry() |>
-      dplyr::arrange(dplyr::desc(length_km))
-  } else {
-    city_polys |>
-      dplyr::mutate(
-        length_m   = purrr::map(geometry, canal_length_for_poly, city_crs_code, .progress = TRUE),
-        length_km  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "km"))),
-        length_mi  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "mi"))),
-        density_km_per_km2 = dplyr::if_else(area_km2 > 0, length_km / area_km2, NA_real_),
-        population_density_per_km2 = dplyr::if_else(area_km2 > 0 & !is.na(population), population / area_km2, NA_real_)
-      ) |>
-      sf::st_drop_geometry() |>
-      dplyr::arrange(dplyr::desc(length_km))
-  }
+  map_fn <- if (use_parallel) furrr::future_map else purrr::map
+
+  city_polys |>
+    dplyr::mutate(
+      length_m   = map_fn(geometry, canal_length_for_poly, city_crs_code, .progress = TRUE),
+      length_km  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "km"))),
+      length_mi  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "mi"))),
+      density_km_per_km2 = dplyr::if_else(area_km2 > 0, length_km / area_km2, NA_real_),
+      population_density_per_km2 = dplyr::if_else(area_km2 > 0 & !is.na(population), population / area_km2, NA_real_)
+    ) |>
+    sf::st_drop_geometry() |>
+    dplyr::arrange(dplyr::desc(length_km))
 }
 
 #' Rank UK cities by canal length

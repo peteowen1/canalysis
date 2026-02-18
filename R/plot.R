@@ -44,7 +44,7 @@ plot_city_canals_map <- function(city_name, city_polys, canals_all, provider = "
     canals_clip <- sf::st_sf(geometry = sf::st_sfc(crs = sf::st_crs(poly)))
   } else {
     # Clip canals to the exact city polygon
-    canals_clip <- suppressWarnings(sf::st_intersection(sf::st_geometry(canals_sub), sf::st_geometry(poly)))
+    canals_clip <- suppress_sf_attr_warnings(sf::st_intersection(sf::st_geometry(canals_sub), sf::st_geometry(poly)))
     canals_clip <- sf::st_as_sf(tibble::tibble(geometry = canals_clip)) |>
       dplyr::filter(!sf::st_is_empty(geometry))
   }
@@ -75,7 +75,7 @@ plot_city_canals_map <- function(city_name, city_polys, canals_all, provider = "
     p <- p + ggplot2::geom_sf(data = c3857, color = "blue", linewidth = line_size)
   }
 
-  return(p)
+  p
 }
 
 #' Plot all administrative polygons on UK map
@@ -92,15 +92,6 @@ plot_city_canals_map <- function(city_name, city_polys, canals_all, provider = "
 #' @export
 plot_all_city_polygons <- function(city_polys, show_labels = TRUE, label_size = 2.5,
                                    use_basemap = TRUE, tile_provider = "osm") {
-  if (!requireNamespace("ggplot2", quietly = TRUE) || !requireNamespace("sf", quietly = TRUE)) {
-    stop("ggplot2 and sf packages are required for plotting")
-  }
-
-  if (use_basemap && !requireNamespace("ggspatial", quietly = TRUE)) {
-    warning("ggspatial package required for basemap. Falling back to plain map.")
-    use_basemap <- FALSE
-  }
-
   # Transform to Web Mercator for basemap compatibility, or BNG for plain map
   target_crs <- if (use_basemap) 3857 else 27700  # Web Mercator vs British National Grid
   city_polys_proj <- sf::st_transform(city_polys, target_crs)
@@ -148,5 +139,5 @@ plot_all_city_polygons <- function(city_polys, show_labels = TRUE, label_size = 
     message("Too many administrative areas (", nrow(city_polys), ") to show labels clearly. Set show_labels = FALSE or filter to fewer areas.")
   }
 
-  return(p)
+  p
 }

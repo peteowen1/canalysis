@@ -1,4 +1,14 @@
 # Shared utility functions
+
+# Suppress only known-benign sf warnings (attribute assumptions),
+# letting genuine warnings (invalid geometry, topology errors) propagate
+suppress_sf_attr_warnings <- function(expr) {
+  withCallingHandlers(expr, warning = function(w) {
+    if (grepl("attribute variables are assumed to be spatially constant", conditionMessage(w), fixed = TRUE)) {
+      invokeRestart("muffleWarning")
+    }
+  })
+}
 ensure_chr <- function(x) if (is.null(x)) NA_character_ else as.character(x)
 
 ensure_chr_cols <- function(df, cols) {
@@ -45,7 +55,10 @@ sf_bind_rows <- function(lst) {
 
 utm_epsg_for <- function(sf_poly) {
   ctd  <- sf::st_centroid(sf::st_union(sf_poly))
-  lon  <- as.numeric(sf::st_coordinates(ctd)[1])
+  coords <- sf::st_coordinates(ctd)
+  lon  <- as.numeric(coords[1])
+  lat  <- as.numeric(coords[2])
   zone <- floor((lon + 180) / 6) + 1
-  32600 + zone
+  base <- if (lat >= 0) 32600 else 32700
+  base + zone
 }
