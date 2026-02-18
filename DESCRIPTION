@@ -1,0 +1,39 @@
+Package: canalysis
+Type: Package
+Title: What the Package Does (Title Case)
+Version: 0.1.0
+Authors@R: c(
+    person(
+      "Jane", "Doe",
+      email = "jane@example.com",
+      role = c("aut", "cre")
+    )
+  )
+Description: More about what it does (maybe more than one line).
+    Continuation lines should be indented.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Imports: 
+    cachem,
+    dplyr,
+    furrr,
+    future,
+    ggplot2,
+    ggspatial,
+    memoise,
+    osmdata,
+    parallel,
+    purrr,
+    scales,
+    sf,
+    stringr,
+    tibble,
+    units
+Suggests: 
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+RoxygenNote: 7.3.2.9000
