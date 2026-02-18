@@ -57,8 +57,8 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 
 ## File Structure
 
-- `R/utils.R` - Core pipeline functions (setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons, calculate_canal_metrics) and shared utilities (ensure_chr, sf_bind_rows, utm_epsg_for). Also contains legacy functions (get_admin_for_city, get_admin_for_city_cached) that are no longer used by the main pipeline.
-- `R/uk_canals.R` - High-level pipeline orchestrator (rank_uk_cities_by_canals) and plotting functions (plot_city_canals_map, plot_all_city_polygons)
+- `R/utils.R` - Shared utilities (ensure_chr, ensure_chr_cols, sf_bind_rows, utm_epsg_for)
+- `R/uk_canals.R` - Core pipeline functions (setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons, calculate_canal_metrics), high-level pipeline orchestrator (rank_uk_cities_by_canals), and plotting functions (plot_city_canals_map, plot_all_city_polygons)
 - `data/uk_metropolitan_districts.csv` - Population data for UK administrative areas (122 areas)
 - `analysis/step_by_step_analysis.R` - Script for debugging pipeline execution step-by-step
 - `analysis/analysis_helpers.R` - Helper functions for analysis scripts
@@ -72,17 +72,13 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 - Analysis scripts in `analysis/` provide debugging and step-by-step execution capabilities
 - Intermediate results can be cached in `analysis/cache/` for development efficiency
 - Uses roxygen2 for documentation generation
-- Function `setup_admin_utilities()` is deprecated - caching is now handled directly in `get_admin_for_city_cached()`
-
 ## Output Data Structure
 
 The main analysis returns a tibble with columns: `city`, `admin_type`, `population`, `area_km2`, `length_km`, `length_mi`, `density_km_per_km2`, `population_density_per_km2`.
 
 ## Gotchas
 
-- **NAMESPACE out of sync**: Many functions have `@export` roxygen tags but NAMESPACE only lists 2 exports. Run `devtools::document()` to regenerate.
 - **CSV dual-path lookup**: `get_city_admin_polygons()` first tries `system.file("extdata", ...)` (for installed package) then falls back to `data/` (for development). The CSV lives at `data/` — it would need to be at `inst/extdata/` for the installed package path to work.
-- **Legacy code in utils.R**: `get_admin_for_city()` and `get_admin_for_city_cached()` are superseded by `fetch_uk_cities()` but still present. The top-level `cache_dir` and `memoise` call at module scope may cause issues.
 
 ## Tool Permissions
 

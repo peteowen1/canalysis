@@ -1,16 +1,18 @@
 Package: canalysis
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Analyse UK Canal Networks Using OpenStreetMap Data
 Version: 0.1.0
 Authors@R: c(
     person(
-      "Jane", "Doe",
-      email = "jane@example.com",
+      "Peter", "Owen",
+      email = "peter@bzi.com.au",
       role = c("aut", "cre")
     )
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
+Description: Ranks UK cities by canal length, area coverage, and canal density
+    within administrative boundaries. Downloads canal geometries and
+    administrative polygons from OpenStreetMap, enriches them with official
+    population estimates, and computes spatial metrics.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true

@@ -1,55 +1,3 @@
-# Shared utility functions
-ensure_chr <- function(x) if (is.null(x)) NA_character_ else as.character(x)
-
-ensure_chr_cols <- function(df, cols) {
-  miss <- setdiff(cols, names(df))
-  if (length(miss)) df[miss] <- NA_character_
-  dplyr::mutate(df, dplyr::across(dplyr::all_of(cols), as.character))
-}
-
-sf_bind_rows <- function(lst) {
-  lst <- purrr::compact(lst)
-  if (!length(lst)) return(NULL)
-  if (length(lst) == 1) return(lst[[1]])
-
-  # Get all unique column names across all data frames
-  all_cols <- unique(unlist(lapply(lst, names)))
-
-  # Ensure all data frames have the same columns
-  lst <- lapply(lst, function(df) {
-    # Skip empty data frames
-    if (nrow(df) == 0) return(df)
-
-    missing_cols <- setdiff(all_cols, names(df))
-    if (length(missing_cols) > 0) {
-      # Add missing columns as NA, preserving sf geometry column
-      for (col in missing_cols) {
-        if (col != attr(df, "sf_column")) {
-          df[[col]] <- NA_character_
-        }
-      }
-    }
-    # Reorder columns to match
-    df[all_cols[all_cols %in% names(df)]]
-  })
-
-  # Now bind rows
-  out <- lst[[1]]
-  if (length(lst) > 1) {
-    for (i in 2:length(lst)) {
-      out <- suppressWarnings(rbind(out, lst[[i]]))
-    }
-  }
-  out
-}
-
-utm_epsg_for <- function(sf_poly) {
-  ctd  <- sf::st_centroid(sf::st_union(sf_poly))
-  lon  <- as.numeric(sf::st_coordinates(ctd)[1])
-  zone <- floor((lon + 180) / 6) + 1
-  32600 + zone
-}
-
 #' Setup UK bounding box for analysis
 #'
 #' Configures Overpass URL and retrieves UK bounding box coordinates.
@@ -71,6 +19,7 @@ setup_uk_bbox <- function(overpass_url = NULL) {
 #' Downloads and filters canal data from OpenStreetMap within UK boundaries.
 #'
 #' @param uk_bb_vec UK bounding box vector from setup_uk_bbox()
+#' @param use_cache Logical, whether to use disk caching for OSM queries
 #' @return sf object with filtered canal lines
 #' @export
 fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
@@ -109,6 +58,39 @@ fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
   result
 }
 
+# Internal helper to run the 4 OSM admin boundary queries
+.fetch_admin_boundaries <- function(bbox) {
+  # Query for metropolitan districts (admin_level=8, designation=metropolitan_district)
+  q_metro <- osmdata::opq(bbox = bbox, timeout = 450) |>
+    osmdata::add_osm_feature("boundary", "administrative") |>
+    osmdata::add_osm_feature("admin_level", "8") |>
+    osmdata::add_osm_feature("designation", "metropolitan_district")
+  dat_metro <- osmdata::osmdata_sf(q_metro)
+
+  # Query for unitary authorities (admin_level=6, designation=unitary_authority)
+  q_unitary <- osmdata::opq(bbox = bbox, timeout = 450) |>
+    osmdata::add_osm_feature("boundary", "administrative") |>
+    osmdata::add_osm_feature("admin_level", "6") |>
+    osmdata::add_osm_feature("designation", "unitary_authority")
+  dat_unitary <- osmdata::osmdata_sf(q_unitary)
+
+  # Query for combined authorities (admin_level=5) with specific designation
+  q_combined <- osmdata::opq(bbox = bbox, timeout = 450) |>
+    osmdata::add_osm_feature("boundary", "administrative") |>
+    osmdata::add_osm_feature("admin_level", "5") |>
+    osmdata::add_osm_feature("designation", "combined_authority")
+  dat_combined <- osmdata::osmdata_sf(q_combined)
+
+  # Query for Greater London specifically (may not have combined_authority designation)
+  q_london <- osmdata::opq(bbox = bbox, timeout = 450) |>
+    osmdata::add_osm_feature("boundary", "administrative") |>
+    osmdata::add_osm_feature("admin_level", "5") |>
+    osmdata::add_osm_feature("name", "Greater London")
+  dat_london <- osmdata::osmdata_sf(q_london)
+
+  list(metro = dat_metro, unitary = dat_unitary, combined = dat_combined, london = dat_london)
+}
+
 #' Fetch UK administrative boundary polygons from OpenStreetMap
 #'
 #' Downloads metropolitan districts, unitary authorities, and combined authorities boundary polygons from OpenStreetMap.
@@ -124,79 +106,16 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
     cache_dir <- file.path(tempdir(), "canalysis_cache")
     if (!dir.exists(cache_dir)) dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
 
-    fetch_metro_districts_internal <- function(bbox) {
-      # Query for metropolitan districts (admin_level=8, designation=metropolitan_district)
-      q_metro <- osmdata::opq(bbox = bbox, timeout = 450) |>
-        osmdata::add_osm_feature("boundary", "administrative") |>
-        osmdata::add_osm_feature("admin_level", "8") |>
-        osmdata::add_osm_feature("designation", "metropolitan_district")
-      dat_metro <- osmdata::osmdata_sf(q_metro)
-
-      # Query for unitary authorities (admin_level=6, designation=unitary_authority)
-      q_unitary <- osmdata::opq(bbox = bbox, timeout = 450) |>
-        osmdata::add_osm_feature("boundary", "administrative") |>
-        osmdata::add_osm_feature("admin_level", "6") |>
-        osmdata::add_osm_feature("designation", "unitary_authority")
-      dat_unitary <- osmdata::osmdata_sf(q_unitary)
-
-      # Query for combined authorities (admin_level=5) with specific designation
-      q_combined <- osmdata::opq(bbox = bbox, timeout = 450) |>
-        osmdata::add_osm_feature("boundary", "administrative") |>
-        osmdata::add_osm_feature("admin_level", "5") |>
-        osmdata::add_osm_feature("designation", "combined_authority")
-      dat_combined <- osmdata::osmdata_sf(q_combined)
-      
-      # Query for Greater London specifically (may not have combined_authority designation)
-      q_london <- osmdata::opq(bbox = bbox, timeout = 450) |>
-        osmdata::add_osm_feature("boundary", "administrative") |>
-        osmdata::add_osm_feature("admin_level", "5") |>
-        osmdata::add_osm_feature("name", "Greater London")
-      dat_london <- osmdata::osmdata_sf(q_london)
-
-      list(metro = dat_metro, unitary = dat_unitary, combined = dat_combined, london = dat_london)
-    }
-
-    fetch_metro_districts_cached <- memoise::memoise(fetch_metro_districts_internal,
-                                            cache = cachem::cache_disk(cache_dir))
-    dat_all <- fetch_metro_districts_cached(uk_bb_vec)
+    fetch_cached <- memoise::memoise(.fetch_admin_boundaries,
+                                     cache = cachem::cache_disk(cache_dir))
+    dat_all <- fetch_cached(uk_bb_vec)
   } else {
-    # Query for metropolitan districts
-    q_metro <- osmdata::opq(bbox = uk_bb_vec, timeout = 450) |>
-      osmdata::add_osm_feature("boundary", "administrative") |>
-      osmdata::add_osm_feature("admin_level", "8") |>
-      osmdata::add_osm_feature("designation", "metropolitan_district")
-    dat_metro <- osmdata::osmdata_sf(q_metro)
+    dat_all <- .fetch_admin_boundaries(uk_bb_vec)
 
-    message("Found ", nrow(dat_metro$osm_multipolygons), " metro areas")
-
-    # Query for unitary authorities
-    q_unitary <- osmdata::opq(bbox = uk_bb_vec, timeout = 450) |>
-      osmdata::add_osm_feature("boundary", "administrative") |>
-      osmdata::add_osm_feature("admin_level", "6") |>
-      osmdata::add_osm_feature("designation", "unitary_authority")
-    dat_unitary <- osmdata::osmdata_sf(q_unitary)
-
-    message("Found ", nrow(dat_unitary$osm_multipolygons), " unitary areas")
-
-    # Query for combined authorities (admin_level=5) with specific designation
-    q_combined <- osmdata::opq(bbox = uk_bb_vec, timeout = 450) |>
-      osmdata::add_osm_feature("boundary", "administrative") |>
-      osmdata::add_osm_feature("admin_level", "5") |>
-      osmdata::add_osm_feature("designation", "combined_authority")
-    dat_combined <- osmdata::osmdata_sf(q_combined)
-
-    message("Found ", nrow(dat_combined$osm_multipolygons), " combined authorities")
-    
-    # Query for Greater London specifically (may not have combined_authority designation)
-    q_london <- osmdata::opq(bbox = uk_bb_vec, timeout = 450) |>
-      osmdata::add_osm_feature("boundary", "administrative") |>
-      osmdata::add_osm_feature("admin_level", "5") |>
-      osmdata::add_osm_feature("name", "Greater London")
-    dat_london <- osmdata::osmdata_sf(q_london)
-
-    message("Found ", nrow(dat_london$osm_multipolygons), " Greater London areas")
-
-    dat_all <- list(metro = dat_metro, unitary = dat_unitary, combined = dat_combined, london = dat_london)
+    message("Found ", nrow(dat_all$metro$osm_multipolygons), " metro areas")
+    message("Found ", nrow(dat_all$unitary$osm_multipolygons), " unitary areas")
+    message("Found ", nrow(dat_all$combined$osm_multipolygons), " combined authorities")
+    message("Found ", nrow(dat_all$london$osm_multipolygons), " Greater London areas")
   }
 
   # Combine metropolitan districts, unitary authorities, and combined authorities polygons
@@ -214,7 +133,7 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
   if (!is.null(combined_polys) && nrow(combined_polys) > 0) {
     combined_polys$admin_type <- "Combined Authority"
   }
-  
+
   london_polys <- sf_bind_rows(list(dat_all$london$osm_multipolygons, dat_all$london$osm_polygons))
   if (!is.null(london_polys) && nrow(london_polys) > 0) {
     london_polys$admin_type <- "Combined Authority"  # Greater London is also a combined authority
@@ -227,8 +146,8 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
   }
 
   result <- all_polys |>
-    dplyr::mutate(name = ensure_chr(name)) |>
-    dplyr::filter(!is.na(name), !sf::st_is_empty(geometry), !is.na(admin_level)) |>
+    dplyr::mutate(name = as.character(name)) |>
+    dplyr::filter(!is.na(name), !sf::st_is_empty(geometry)) |>
     sf::st_make_valid()
 
   # Ensure WGS84 CRS is set (OSM data should be in WGS84)
@@ -251,15 +170,13 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
 
 #' Get administrative polygons for cities
 #'
-#' This function should receive the full administrative boundary polygons directly,
-#' not city centroids. It enriches polygons with population data from CSV file.
+#' Enriches administrative boundary polygons with population data from CSV file
+#' and calculates area in km².
 #'
 #' @param admin_polys sf object with administrative boundary polygons from fetch_uk_cities()
-#' @param use_parallel Logical, whether to use parallel processing (legacy parameter, ignored)
-#' @param workers Number of parallel workers to use (legacy parameter, ignored)
 #' @return sf object with administrative polygons including population and area_km2 data
 #' @export
-get_city_admin_polygons <- function(admin_polys, use_parallel = FALSE, workers = NULL) {
+get_city_admin_polygons <- function(admin_polys) {
 
   # Load population data from CSV
   csv_path <- system.file("extdata", "uk_metropolitan_districts.csv", package = "canalysis")
@@ -270,69 +187,76 @@ get_city_admin_polygons <- function(admin_polys, use_parallel = FALSE, workers =
 
   if (file.exists(csv_path)) {
     pop_data <- utils::read.csv(csv_path, stringsAsFactors = FALSE)
-    # Clean column names
     names(pop_data) <- c("Code", "Name", "Geography", "Area_sq_km", "Population_mid_2022", "People_per_sq_km")
 
-    # Create a lookup function for population data
-    get_population_for_name <- function(name) {
-      if (is.na(name) || is.null(name)) return(NA_real_)
+    # Clean names for joining
+    clean_name <- function(x) {
+      x <- gsub(", City of$", "", x)
+      x <- gsub(" City$", "", x)
+      x <- gsub(" Borough$", "", x)
+      x <- gsub(" Council$", "", x)
+      x <- gsub("upon", "on", x, ignore.case = TRUE)
+      trimws(x)
+    }
 
-      # Direct match first
-      direct_match <- pop_data[pop_data$Name == name, "Population_mid_2022"]
-      if (length(direct_match) > 0 && !is.na(direct_match[1])) {
-        return(as.numeric(direct_match[1]))
-      }
+    pop_data$clean_name <- clean_name(pop_data$Name)
+    pop_data$name_lower <- tolower(pop_data$Name)
+    pop_data$clean_name_lower <- tolower(pop_data$clean_name)
 
-      # Handle common name variations
-      clean_name <- function(x) {
-        # Remove common administrative suffixes and normalize
-        x <- gsub(", City of$", "", x)
-        x <- gsub(" City$", "", x)
-        x <- gsub(" Borough$", "", x)
-        x <- gsub(" Council$", "", x)
-        x <- gsub("upon", "on", x, ignore.case = TRUE)
-        return(trimws(x))
-      }
+    # Prepare admin polygons with join keys
+    polys <- admin_polys |>
+      dplyr::mutate(
+        city = name,
+        name_lower = tolower(name),
+        clean_name_lower = tolower(clean_name(name))
+      )
 
-      clean_input <- clean_name(name)
+    # Join 1: exact name match
+    pop_exact <- pop_data[, c("name_lower", "Population_mid_2022")]
+    names(pop_exact) <- c("name_lower", "pop_exact")
+    polys <- dplyr::left_join(sf::st_drop_geometry(polys) |> dplyr::select(city, name_lower, clean_name_lower),
+                              pop_exact, by = "name_lower") |>
+      dplyr::left_join(
+        stats::setNames(pop_data[, c("clean_name_lower", "Population_mid_2022")], c("clean_name_lower", "pop_clean")),
+        by = "clean_name_lower"
+      ) |>
+      dplyr::mutate(population = dplyr::coalesce(as.numeric(pop_exact), as.numeric(pop_clean)))
 
-      # Try partial matching with cleaned names
+    # Join 3: fuzzy substring fallback for remaining NAs
+    unmatched <- which(is.na(polys$population))
+    for (idx in unmatched) {
+      city_clean <- polys$clean_name_lower[idx]
       for (i in seq_len(nrow(pop_data))) {
-        csv_name <- clean_name(pop_data$Name[i])
-        if (clean_input == csv_name && !is.na(pop_data$Population_mid_2022[i])) {
-          return(as.numeric(pop_data$Population_mid_2022[i]))
-        }
-      }
-
-      # Try simple substring matching for close matches
-      for (i in seq_len(nrow(pop_data))) {
-        csv_name <- pop_data$Name[i]
-        # Check if either name contains the other (case insensitive)
-        if (grepl(clean_input, csv_name, ignore.case = TRUE) ||
-            grepl(csv_name, clean_input, ignore.case = TRUE)) {
+        csv_clean <- pop_data$clean_name_lower[i]
+        if (grepl(city_clean, csv_clean, ignore.case = TRUE) ||
+            grepl(csv_clean, city_clean, ignore.case = TRUE)) {
           pop_val <- pop_data$Population_mid_2022[i]
           if (!is.na(pop_val)) {
-            return(as.numeric(pop_val))
+            polys$population[idx] <- as.numeric(pop_val)
+            break
           }
         }
       }
-
-      return(NA_real_)
     }
+
+    # Re-attach geometry from original admin_polys
+    result <- admin_polys |>
+      dplyr::mutate(
+        city = name,
+        population = polys$population
+      ) |>
+      dplyr::select(city, admin_type, population, geometry) |>
+      dplyr::distinct(city, .keep_all = TRUE) |>
+      sf::st_make_valid()
+
   } else {
     message("Warning: Population CSV file not found. Population data will be NA.")
-    get_population_for_name <- function(name) NA_real_
+    result <- admin_polys |>
+      dplyr::mutate(city = name, population = NA_real_) |>
+      dplyr::select(city, admin_type, population, geometry) |>
+      dplyr::distinct(city, .keep_all = TRUE) |>
+      sf::st_make_valid()
   }
-
-  # Work directly with the administrative polygons, don't do individual OSM queries
-  result <- admin_polys |>
-    dplyr::mutate(
-      city = name,
-      population = purrr::map_dbl(name, get_population_for_name)
-    ) |>
-    dplyr::select(city, admin_type, population, geometry) |>
-    dplyr::distinct(city, .keep_all = TRUE) |>
-    sf::st_make_valid()
 
   # Add area in km² using UTM projection for accurate area calculation
   result$area_km2 <- purrr::map_dbl(result$geometry, function(geom) {
@@ -354,7 +278,7 @@ get_city_admin_polygons <- function(admin_polys, use_parallel = FALSE, workers =
 #' Calculate canal metrics for administrative areas
 #'
 #' Measures canal length, area coverage, density, and population metrics for each administrative polygon.
-#' Uses UTM projections for accurate length and area calculations.
+#' Uses UTM projections for accurate length calculations. Uses pre-computed area_km2 from city_polys.
 #'
 #' @param city_polys sf object with administrative polygons from get_city_admin_polygons()
 #' @param canals_all sf object with canals from fetch_uk_canals()
@@ -376,6 +300,9 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
     city_polys <- sf::st_set_crs(city_polys, 4326)
   }
 
+  # Transform canals once to match city_polys CRS
+  canals_transformed <- sf::st_transform(canals_all, sf::st_crs(city_polys))
+
   canal_length_for_poly <- function(geom, city_crs = 4326) {
     # Convert single geometry to sf object with proper CRS
     poly <- sf::st_sf(geometry = sf::st_sfc(geom, crs = city_crs))
@@ -383,8 +310,7 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
     bb <- sf::st_bbox(poly)
     bb_sfc <- sf::st_as_sfc(bb)
     sf::st_crs(bb_sfc) <- sf::st_crs(poly)
-    # Transform canals to match polygon CRS for spatial operations
-    canals_transformed <- sf::st_transform(canals_all, sf::st_crs(poly))
+    # Use pre-transformed canals
     canals_sub <- canals_transformed[sf::st_intersects(canals_transformed, bb_sfc, sparse = FALSE)[,1], ]
     if (nrow(canals_sub) == 0) return(units::set_units(0, "m"))
     clip <- suppressWarnings(sf::st_intersection(sf::st_geometry(canals_sub), sf::st_geometry(poly)))
@@ -393,13 +319,6 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
       dplyr::filter(!sf::st_is_empty(geometry))
     epsg <- utm_epsg_for(poly)
     sum(sf::st_length(sf::st_transform(clip, epsg)), na.rm = TRUE)
-  }
-
-  boundary_area_km2 <- function(geom, city_crs = 4326) {
-    # Convert single geometry to sf object with proper CRS
-    poly <- sf::st_sf(geometry = sf::st_sfc(geom, crs = city_crs))
-    epsg <- utm_epsg_for(poly)
-    units::drop_units(units::set_units(sf::st_area(sf::st_transform(poly, epsg)), "km^2"))
   }
 
   # Get the CRS of city_polys to pass to helper functions
@@ -412,7 +331,6 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
         length_m   = furrr::future_map(geometry, canal_length_for_poly, city_crs_code, .progress = TRUE),
         length_km  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "km"))),
         length_mi  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "mi"))),
-        area_km2   = furrr::future_map_dbl(geometry, boundary_area_km2, city_crs_code, .progress = TRUE),
         density_km_per_km2 = dplyr::if_else(area_km2 > 0, length_km / area_km2, NA_real_),
         population_density_per_km2 = dplyr::if_else(area_km2 > 0 & !is.na(population), population / area_km2, NA_real_)
       ) |>
@@ -424,7 +342,6 @@ calculate_canal_metrics <- function(city_polys, canals_all, use_parallel = FALSE
         length_m   = purrr::map(geometry, canal_length_for_poly, city_crs_code, .progress = TRUE),
         length_km  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "km"))),
         length_mi  = purrr::map_dbl(length_m, ~ units::drop_units(units::set_units(.x, "mi"))),
-        area_km2   = purrr::map_dbl(geometry, boundary_area_km2, city_crs_code),
         density_km_per_km2 = dplyr::if_else(area_km2 > 0, length_km / area_km2, NA_real_),
         population_density_per_km2 = dplyr::if_else(area_km2 > 0 & !is.na(population), population / area_km2, NA_real_)
       ) |>
@@ -454,7 +371,7 @@ rank_uk_cities_by_canals <- function(overpass_url = NULL, use_parallel = FALSE, 
   uk_bb_vec <- setup_uk_bbox(overpass_url)
   canals_all <- fetch_uk_canals(uk_bb_vec, use_cache)
   cities_pts <- fetch_uk_cities(uk_bb_vec, use_cache)
-  city_polys <- get_city_admin_polygons(cities_pts, use_parallel, workers)
+  city_polys <- get_city_admin_polygons(cities_pts)
   calculate_canal_metrics(city_polys, canals_all, use_parallel, workers)
 
 }
