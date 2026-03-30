@@ -50,20 +50,10 @@ test_that("canal filtering removes disused/abandoned/proposed canals", {
   expect_equal(result$osm_id, "1")
 })
 
-test_that("clean_name function handles city name variations", {
-  # Replicate the internal clean_name logic
-  clean_name <- function(x) {
-    x <- gsub(", City of$", "", x)
-    x <- gsub(" City$", "", x)
-    x <- gsub(" Borough$", "", x)
-    x <- gsub(" Council$", "", x)
-    x <- gsub("upon", "on", x, ignore.case = TRUE)
-    trimws(x)
-  }
-
-  expect_equal(clean_name("Kingston upon Hull, City of"), "Kingston on Hull")
-  expect_equal(clean_name("Newcastle upon Tyne"), "Newcastle on Tyne")
-  expect_equal(clean_name("Manchester City"), "Manchester")
-  expect_equal(clean_name("Some Borough"), "Some")
-  expect_equal(clean_name("Leeds"), "Leeds")
+test_that("clean_admin_name handles city name variations", {
+  expect_equal(clean_admin_name("Kingston upon Hull, City of"), "Kingston on Hull")
+  expect_equal(clean_admin_name("Newcastle upon Tyne"), "Newcastle on Tyne")
+  expect_equal(clean_admin_name("Manchester City"), "Manchester")
+  expect_equal(clean_admin_name("Some Borough"), "Some")
+  expect_equal(clean_admin_name("Leeds"), "Leeds")
 })

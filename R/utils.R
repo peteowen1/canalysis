@@ -1,5 +1,15 @@
 # Shared utility functions
 
+# Declare NSE variables used in dplyr/ggplot2 pipelines to silence R CMD check NOTEs
+utils::globalVariables(c(
+  "abandoned", "admin_type", "area_km2", "canal", "city",
+  "disused", "geometry", "label", "length_km", "length_m", "name",
+  "osm_id", "population", "proposed", "total_length_m"
+))
+
+#' @importFrom utils head
+NULL
+
 # Suppress only known-benign sf warnings (attribute assumptions),
 # letting genuine warnings (invalid geometry, topology errors) propagate
 suppress_sf_attr_warnings <- function(expr) {
@@ -15,6 +25,15 @@ ensure_chr_cols <- function(df, cols) {
   miss <- setdiff(cols, names(df))
   if (length(miss)) df[miss] <- NA_character_
   dplyr::mutate(df, dplyr::across(dplyr::all_of(cols), as.character))
+}
+
+clean_admin_name <- function(x) {
+  x <- gsub(", City of$", "", x)
+  x <- gsub(" City$", "", x)
+  x <- gsub(" Borough$", "", x)
+  x <- gsub(" Council$", "", x)
+  x <- gsub("upon", "on", x, ignore.case = TRUE)
+  trimws(x)
 }
 
 sf_bind_rows <- function(lst) {
@@ -47,18 +66,8 @@ sf_bind_rows <- function(lst) {
   out <- lst[[1]]
   if (length(lst) > 1) {
     for (i in 2:length(lst)) {
-      out <- suppressWarnings(rbind(out, lst[[i]]))
+      out <- suppress_sf_attr_warnings(rbind(out, lst[[i]]))
     }
   }
   out
-}
-
-utm_epsg_for <- function(sf_poly) {
-  ctd  <- sf::st_centroid(sf::st_union(sf_poly))
-  coords <- sf::st_coordinates(ctd)
-  lon  <- as.numeric(coords[1])
-  lat  <- as.numeric(coords[2])
-  zone <- floor((lon + 180) / 6) + 1
-  base <- if (lat >= 0) 32600 else 32700
-  base + zone
 }

@@ -5,6 +5,19 @@
   d
 }
 
+# Overpass API timeout in seconds for all OSM queries
+.osm_timeout <- 450
+
+# Package-level environment for memoised function singletons
+.memo_env <- new.env(parent = emptyenv())
+
+.get_cached_fn <- function(name, fn) {
+  if (is.null(.memo_env[[name]])) {
+    .memo_env[[name]] <- memoise::memoise(fn, cache = cachem::cache_disk(.cache_dir()))
+  }
+  .memo_env[[name]]
+}
+
 #' Clear cached OSM data
 #'
 #' Removes the persistent disk cache used by fetch_uk_canals() and fetch_uk_cities().
@@ -14,6 +27,8 @@
 clear_cache <- function() {
   d <- tools::R_user_dir("canalysis", "cache")
   if (dir.exists(d)) unlink(d, recursive = TRUE)
+  # Reset memoised singletons so they pick up the fresh (empty) cache
+  rm(list = ls(.memo_env), envir = .memo_env)
   message("Cache cleared: ", d)
   invisible(d)
 }
@@ -28,7 +43,10 @@ clear_cache <- function() {
 setup_uk_bbox <- function(overpass_url = NULL) {
   old_opts <- options(osmdata_bbox = NULL)
   on.exit(options(old_opts), add = TRUE)
-  if (!is.null(overpass_url)) options(osmdata_overpass_url = overpass_url)
+  if (!is.null(overpass_url)) {
+    old_overpass <- options(osmdata_overpass_url = overpass_url)
+    on.exit(options(old_overpass), add = TRUE, after = FALSE)
+  }
 
   uk_bb_matrix <- tryCatch(
     osmdata::getbb("United Kingdom", format_out = "matrix"),
@@ -47,7 +65,7 @@ setup_uk_bbox <- function(overpass_url = NULL) {
 #' @export
 fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
   .fetch_and_process_canals <- function(bbox) {
-    q_canals <- osmdata::opq(bbox = bbox, timeout = 450) |>
+    q_canals <- osmdata::opq(bbox = bbox, timeout = .osm_timeout) |>
       osmdata::add_osm_feature("waterway", "canal")
     dat_canals <- osmdata::osmdata_sf(q_canals)
 
@@ -72,9 +90,7 @@ fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
   }
 
   if (use_cache) {
-    cached_fn <- memoise::memoise(.fetch_and_process_canals,
-                                  cache = cachem::cache_disk(.cache_dir()))
-    cached_fn(uk_bb_vec)
+    .get_cached_fn("canals", .fetch_and_process_canals)(uk_bb_vec)
   } else {
     .fetch_and_process_canals(uk_bb_vec)
   }
@@ -83,28 +99,28 @@ fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
 # Internal helper to run the 4 OSM admin boundary queries
 .fetch_admin_boundaries <- function(bbox) {
   # Query for metropolitan districts (admin_level=8, designation=metropolitan_district)
-  q_metro <- osmdata::opq(bbox = bbox, timeout = 450) |>
+  q_metro <- osmdata::opq(bbox = bbox, timeout = .osm_timeout) |>
     osmdata::add_osm_feature("boundary", "administrative") |>
     osmdata::add_osm_feature("admin_level", "8") |>
     osmdata::add_osm_feature("designation", "metropolitan_district")
   dat_metro <- osmdata::osmdata_sf(q_metro)
 
   # Query for unitary authorities (admin_level=6, designation=unitary_authority)
-  q_unitary <- osmdata::opq(bbox = bbox, timeout = 450) |>
+  q_unitary <- osmdata::opq(bbox = bbox, timeout = .osm_timeout) |>
     osmdata::add_osm_feature("boundary", "administrative") |>
     osmdata::add_osm_feature("admin_level", "6") |>
     osmdata::add_osm_feature("designation", "unitary_authority")
   dat_unitary <- osmdata::osmdata_sf(q_unitary)
 
   # Query for combined authorities (admin_level=5) with specific designation
-  q_combined <- osmdata::opq(bbox = bbox, timeout = 450) |>
+  q_combined <- osmdata::opq(bbox = bbox, timeout = .osm_timeout) |>
     osmdata::add_osm_feature("boundary", "administrative") |>
     osmdata::add_osm_feature("admin_level", "5") |>
     osmdata::add_osm_feature("designation", "combined_authority")
   dat_combined <- osmdata::osmdata_sf(q_combined)
 
   # Query for Greater London specifically (may not have combined_authority designation)
-  q_london <- osmdata::opq(bbox = bbox, timeout = 450) |>
+  q_london <- osmdata::opq(bbox = bbox, timeout = .osm_timeout) |>
     osmdata::add_osm_feature("boundary", "administrative") |>
     osmdata::add_osm_feature("admin_level", "5") |>
     osmdata::add_osm_feature("name", "Greater London")
@@ -175,9 +191,7 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
   }
 
   if (use_cache) {
-    cached_fn <- memoise::memoise(.fetch_and_process_cities,
-                                  cache = cachem::cache_disk(.cache_dir()))
-    result <- cached_fn(uk_bb_vec)
+    result <- .get_cached_fn("cities", .fetch_and_process_cities)(uk_bb_vec)
   } else {
     result <- .fetch_and_process_cities(uk_bb_vec)
   }
@@ -193,98 +207,84 @@ fetch_uk_cities <- function(uk_bb_vec, use_cache = TRUE) {
 #' and calculates area in km².
 #'
 #' @param admin_polys sf object with administrative boundary polygons from fetch_uk_cities()
+#' @param min_area_km2 Minimum area in km² to include (default 0.1)
+#' @param min_area_no_pop_km2 Minimum area for areas without population data (default 1.0)
 #' @return sf object with administrative polygons including population and area_km2 data
 #' @export
-get_city_admin_polygons <- function(admin_polys) {
+get_city_admin_polygons <- function(admin_polys, min_area_km2 = 0.1, min_area_no_pop_km2 = 1.0) {
 
   # Load population data from CSV
   csv_path <- system.file("extdata", "uk_metropolitan_districts.csv", package = "canalysis")
-  if (!file.exists(csv_path)) {
-    # Fallback to inst/extdata/ directory for development
-    csv_path <- "inst/extdata/uk_metropolitan_districts.csv"
+  if (!nzchar(csv_path)) {
+    # Fallback to inst/extdata/ relative to package root for development
+    dev_path <- file.path(getwd(), "inst", "extdata", "uk_metropolitan_districts.csv")
+    if (file.exists(dev_path)) csv_path <- dev_path
   }
 
-  if (file.exists(csv_path)) {
+  if (nzchar(csv_path) && file.exists(csv_path)) {
     pop_data <- utils::read.csv(csv_path, stringsAsFactors = FALSE, check.names = FALSE)
     expected_cols <- c("Code", "Name", "Geography")
-    if (length(names(pop_data)) < 6 || !all(expected_cols %in% names(pop_data))) {
+    if (ncol(pop_data) < 6 || !all(expected_cols %in% names(pop_data))) {
       stop("Population CSV has unexpected structure. Expected columns: Code, Name, Geography, ...",
            "\nGot: ", paste(names(pop_data), collapse = ", "), call. = FALSE)
     }
+    # Select only the first 6 columns (extra trailing columns from Excel are ignored)
+    pop_data <- pop_data[, 1:6]
     names(pop_data) <- c("Code", "Name", "Geography", "Area_sq_km", "Population_mid_2022", "People_per_sq_km")
 
-    # Clean names for joining
-    clean_name <- function(x) {
-      x <- gsub(", City of$", "", x)
-      x <- gsub(" City$", "", x)
-      x <- gsub(" Borough$", "", x)
-      x <- gsub(" Council$", "", x)
-      x <- gsub("upon", "on", x, ignore.case = TRUE)
-      trimws(x)
-    }
-
-    pop_data$clean_name <- clean_name(pop_data$Name)
+    pop_data$clean_name <- clean_admin_name(pop_data$Name)
     pop_data$name_lower <- tolower(pop_data$Name)
     pop_data$clean_name_lower <- tolower(pop_data$clean_name)
 
-    # Prepare admin polygons with join keys
-    polys <- admin_polys |>
-      dplyr::mutate(
-        city = name,
-        name_lower = tolower(name),
-        clean_name_lower = tolower(clean_name(name))
-      )
+    # Build a city-keyed lookup: city name -> population
+    # Work on a plain data frame (no geometry) for joining
+    city_keys <- data.frame(
+      city = admin_polys$name,
+      name_lower = tolower(admin_polys$name),
+      clean_name_lower = tolower(clean_admin_name(admin_polys$name)),
+      stringsAsFactors = FALSE
+    )
 
     # Join 1: exact name match
     pop_exact <- pop_data[, c("name_lower", "Population_mid_2022")]
     names(pop_exact) <- c("name_lower", "pop_exact")
-    polys <- dplyr::left_join(sf::st_drop_geometry(polys) |> dplyr::select(city, name_lower, clean_name_lower),
-                              pop_exact, by = "name_lower") |>
-      dplyr::left_join(
-        stats::setNames(pop_data[, c("clean_name_lower", "Population_mid_2022")], c("clean_name_lower", "pop_clean")),
-        by = "clean_name_lower"
-      ) |>
-      dplyr::mutate(population = dplyr::coalesce(as.numeric(pop_exact), as.numeric(pop_clean)))
+    city_keys <- dplyr::left_join(city_keys, pop_exact, by = "name_lower")
 
-    # Fuzzy substring fallback for remaining NAs — require minimum name length
-    # and collect all candidates to pick the best match
-    unmatched <- which(is.na(polys$population))
+    # Join 2: cleaned name match
+    pop_clean <- pop_data[, c("clean_name_lower", "Population_mid_2022")]
+    names(pop_clean) <- c("clean_name_lower", "pop_clean")
+    city_keys <- dplyr::left_join(city_keys, pop_clean, by = "clean_name_lower")
+
+    city_keys$population <- dplyr::coalesce(
+      as.numeric(city_keys$pop_exact),
+      as.numeric(city_keys$pop_clean)
+    )
+
+    # Fuzzy fallback using edit distance for remaining NAs
+    max_edit_dist <- 10L
+    unmatched <- which(is.na(city_keys$population))
     for (idx in unmatched) {
-      city_clean <- polys$clean_name_lower[idx]
-      if (nchar(city_clean) < 4) next  # skip very short names to avoid false matches
-      candidates <- integer(0)
-      for (i in seq_len(nrow(pop_data))) {
-        csv_clean <- pop_data$clean_name_lower[i]
-        if (grepl(city_clean, csv_clean, fixed = TRUE) ||
-            grepl(csv_clean, city_clean, fixed = TRUE)) {
-          candidates <- c(candidates, i)
-        }
-      }
-      if (length(candidates) == 1) {
-        pop_val <- pop_data$Population_mid_2022[candidates]
-        if (!is.na(pop_val)) {
-          polys$population[idx] <- as.numeric(pop_val)
-          message("Fuzzy population match: '", polys$city[idx], "' -> '", pop_data$Name[candidates], "'")
-        }
-      } else if (length(candidates) > 1) {
-        # Multiple fuzzy matches — pick the one with the closest name length
-        dists <- abs(nchar(pop_data$clean_name_lower[candidates]) - nchar(city_clean))
-        best <- candidates[which.min(dists)]
-        pop_val <- pop_data$Population_mid_2022[best]
-        if (!is.na(pop_val)) {
-          polys$population[idx] <- as.numeric(pop_val)
-          message("Fuzzy population match (best of ", length(candidates), "): '",
-                  polys$city[idx], "' -> '", pop_data$Name[best], "'")
-        }
+      city_clean <- city_keys$clean_name_lower[idx]
+      if (nchar(city_clean) < 4L) next  # skip short names to avoid false matches
+      dists <- as.integer(utils::adist(city_clean, pop_data$clean_name_lower))
+      best_dist <- min(dists)
+      if (best_dist > max_edit_dist) next  # reject poor matches entirely
+      best_idx <- which(dists == best_dist)
+      # If tied, pick the first (alphabetical) — deterministic and auditable
+      best <- best_idx[1]
+      pop_val <- pop_data$Population_mid_2022[best]
+      if (!is.na(pop_val)) {
+        city_keys$population[idx] <- as.numeric(pop_val)
+        message("Fuzzy population match (edit dist ", best_dist, "): '",
+                city_keys$city[idx], "' -> '", pop_data$Name[best], "'")
       }
     }
 
-    # Re-attach geometry from original admin_polys
+    # Join population back to admin_polys by key (not by position)
+    pop_lookup <- city_keys[, c("city", "population")]
     result <- admin_polys |>
-      dplyr::mutate(
-        city = name,
-        population = polys$population
-      ) |>
+      dplyr::mutate(city = name) |>
+      dplyr::left_join(pop_lookup, by = "city") |>
       dplyr::select(city, admin_type, population, geometry) |>
       dplyr::distinct(city, .keep_all = TRUE) |>
       sf::st_make_valid()
@@ -303,11 +303,11 @@ get_city_admin_polygons <- function(admin_polys) {
   result_utm <- sf::st_transform(result, 32630)
   result$area_km2 <- as.numeric(units::set_units(sf::st_area(result_utm), "km^2"))
 
-  # Filter out places with very small areas (< 0.1 km²) or missing/invalid population data for small areas
+  # Filter out very small areas or areas without population data
   result <- result |>
     dplyr::filter(
-      area_km2 >= 0.1 &  # Minimum area threshold
-      (area_km2 >= 1.0 | (!is.na(population) & population > 0))  # Either large enough or has valid population
+      area_km2 >= min_area_km2 &
+      (area_km2 >= min_area_no_pop_km2 | (!is.na(population) & population > 0))
     )
 
   result

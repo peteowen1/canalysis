@@ -1,3 +1,5 @@
+.metres_per_mile <- 1609.344
+
 #' Calculate canal metrics for administrative areas
 #'
 #' Measures canal length, area coverage, density, and population metrics for each administrative polygon.
@@ -72,7 +74,7 @@ calculate_canal_metrics <- function(city_polys, canals_all) {
     dplyr::mutate(
       total_length_m = dplyr::coalesce(total_length_m, 0),
       length_km = total_length_m / 1000,
-      length_mi = total_length_m / 1609.344,
+      length_mi = total_length_m / .metres_per_mile,
       density_km_per_km2 = dplyr::if_else(area_km2 > 0, length_km / area_km2, NA_real_),
       population_density_per_km2 = dplyr::if_else(area_km2 > 0 & !is.na(population), population / area_km2, NA_real_)
     ) |>

@@ -4,21 +4,12 @@
 \alias{rank_uk_cities_by_canals}
 \title{Rank UK cities by canal length}
 \usage{
-rank_uk_cities_by_canals(
-  overpass_url = NULL,
-  use_parallel = FALSE,
-  use_cache = TRUE,
-  workers = NULL
-)
+rank_uk_cities_by_canals(overpass_url = NULL, use_cache = TRUE)
 }
 \arguments{
 \item{overpass_url}{Optional Overpass endpoint (character). If NULL, uses default.}
 
-\item{use_parallel}{Logical, whether to use parallel processing for calculations}
-
 \item{use_cache}{Logical, whether to use disk caching for OSM queries}
-
-\item{workers}{Number of parallel workers to use (if use_parallel = TRUE)}
 }
 \value{
 A tibble with columns: city, admin_type, population, length_km, length_mi, area_km2, density_km_per_km2, population_density_per_km2.

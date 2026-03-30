@@ -4,10 +4,18 @@
 \alias{get_city_admin_polygons}
 \title{Get administrative polygons for cities}
 \usage{
-get_city_admin_polygons(admin_polys)
+get_city_admin_polygons(
+  admin_polys,
+  min_area_km2 = 0.1,
+  min_area_no_pop_km2 = 1
+)
 }
 \arguments{
 \item{admin_polys}{sf object with administrative boundary polygons from fetch_uk_cities()}
+
+\item{min_area_km2}{Minimum area in km² to include (default 0.1)}
+
+\item{min_area_no_pop_km2}{Minimum area for areas without population data (default 1.0)}
 }
 \value{
 sf object with administrative polygons including population and area_km2 data

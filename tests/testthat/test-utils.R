@@ -23,24 +23,6 @@ test_that("ensure_chr_cols converts existing columns to character", {
   expect_equal(result$b, c("4", "5", "6"))
 })
 
-test_that("utm_epsg_for returns Northern Hemisphere EPSG for UK coordinates", {
-  # Create a simple point in London (lon=-0.1, lat=51.5)
-  pt <- sf::st_sfc(sf::st_point(c(-0.1, 51.5)), crs = 4326)
-  poly <- sf::st_sf(geometry = pt)
-  epsg <- utm_epsg_for(poly)
-  # London is in UTM zone 30N -> EPSG 32630
-  expect_equal(epsg, 32630)
-})
-
-test_that("utm_epsg_for returns Southern Hemisphere EPSG for southern coordinates", {
-  # Create a point in Melbourne, Australia (lon=144.9, lat=-37.8)
-  pt <- sf::st_sfc(sf::st_point(c(144.9, -37.8)), crs = 4326)
-  poly <- sf::st_sf(geometry = pt)
-  epsg <- utm_epsg_for(poly)
-  # Melbourne is in UTM zone 55S -> EPSG 32755
-  expect_equal(epsg, 32755)
-})
-
 test_that("sf_bind_rows returns NULL for empty list", {
   expect_null(sf_bind_rows(list()))
   expect_null(sf_bind_rows(list(NULL, NULL)))

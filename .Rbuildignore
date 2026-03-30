@@ -5,3 +5,5 @@
 ^analysis$
 ^CLAUDE\.md$
 ^rosm\.cache$
+^\.claude\.local\.md$
+^\.claude$

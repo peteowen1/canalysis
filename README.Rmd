@@ -1,0 +1,52 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# canalysis
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+canalysis ranks UK cities by canal infrastructure using OpenStreetMap data. It downloads canal geometries and administrative boundary polygons, enriches them with official population estimates, and computes spatial metrics including canal length, density, and area coverage.
+
+## Installation
+
+Install the development version from GitHub:
+
+``` r
+# install.packages("pak")
+pak::pak("peterowen/canalysis")
+```
+
+## Usage
+
+```{r example, eval = FALSE}
+library(canalysis)
+
+# Run the full analysis pipeline
+results <- rank_uk_cities_by_canals()
+head(results)
+
+# Plot canals for a specific city
+city_polys <- get_city_admin_polygons(fetch_uk_cities(setup_uk_bbox()))
+canals <- fetch_uk_canals(setup_uk_bbox())
+plot_city_canals_map("Birmingham", city_polys, canals)
+```
+
+The main output is a tibble with columns: `city`, `admin_type`, `population`, `length_km`, `length_mi`, `area_km2`, `density_km_per_km2`, `population_density_per_km2`.
+
+## Data Sources
+
+- **OpenStreetMap** (via Overpass API): Canal geometries and administrative boundary polygons
+- **ONS population estimates**: Mid-2022 population data for metropolitan districts, unitary authorities, and combined authorities

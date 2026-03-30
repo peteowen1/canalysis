@@ -13,17 +13,22 @@
 #' @export
 plot_city_canals_map <- function(city_name, city_polys, canals_all, provider = "osm", zoomin = 0, line_size = 0.8) {
 
-  # Find the city polygon
-  city_match <- city_polys[stringr::str_detect(tolower(city_polys$city), stringr::fixed(tolower(city_name))), ]
+  # Try exact match first (case-insensitive), fall back to substring
+  city_match <- city_polys[tolower(city_polys$city) == tolower(city_name), ]
+
+  if (nrow(city_match) == 0) {
+    # Substring fallback for convenience (e.g., "Manchester" matching "Greater Manchester")
+    city_match <- city_polys[stringr::str_detect(tolower(city_polys$city), stringr::fixed(tolower(city_name))), ]
+  }
 
   if (nrow(city_match) == 0) {
     stop("City '", city_name, "' not found in city_polys. Available cities: ",
          paste(head(city_polys$city, 10), collapse = ", "), "...")
   }
 
-  # If multiple matches, take the first one
   if (nrow(city_match) > 1) {
-    message("Multiple matches found for '", city_name, "'. Using: ", city_match$city[1])
+    message("Multiple matches for '", city_name, "': ",
+            paste(city_match$city, collapse = ", "), ". Using: ", city_match$city[1])
     city_match <- city_match[1, ]
   }
 
@@ -64,7 +69,7 @@ plot_city_canals_map <- function(city_name, city_polys, canals_all, provider = "
       expand = FALSE
     ) +
     ggplot2::labs(
-      title = paste0(city_actual_name, " — Canals"),
+      title = paste0(city_actual_name, " \u2014 Canals"),
       subtitle = paste0("Admin type: ", poly$admin_type, " | Population: ",
                        ifelse(is.na(poly$population), "N/A", format(poly$population, big.mark = ",")))
     ) +
@@ -99,7 +104,7 @@ plot_all_city_polygons <- function(city_polys, show_labels = TRUE, label_size = 
   # Calculate centroids for labels
   if (show_labels) {
     centroids <- sf::st_centroid(city_polys_proj)
-    centroids$label <- paste0(city_polys$city, "\n(", round(city_polys$area_km2, 1), " km²)")
+    centroids$label <- paste0(city_polys$city, "\n(", round(city_polys$area_km2, 1), " km\u00b2)")
   }
 
   # Create the plot
@@ -116,7 +121,7 @@ plot_all_city_polygons <- function(city_polys, show_labels = TRUE, label_size = 
                            alpha = if (use_basemap) 0.7 else 0.8,
                            color = "white",
                            size = 0.4) +
-    ggplot2::scale_fill_viridis_c(name = "Area (km²)",
+    ggplot2::scale_fill_viridis_c(name = "Area (km\u00b2)",
                                   trans = "log10",
                                   labels = scales::comma_format()) +
     ggplot2::coord_sf(crs = target_crs) +

@@ -4,21 +4,12 @@
 \alias{calculate_canal_metrics}
 \title{Calculate canal metrics for administrative areas}
 \usage{
-calculate_canal_metrics(
-  city_polys,
-  canals_all,
-  use_parallel = FALSE,
-  workers = NULL
-)
+calculate_canal_metrics(city_polys, canals_all)
 }
 \arguments{
 \item{city_polys}{sf object with administrative polygons from get_city_admin_polygons()}
 
 \item{canals_all}{sf object with canals from fetch_uk_canals()}
-
-\item{use_parallel}{Logical, whether to use parallel processing for calculations}
-
-\item{workers}{Number of parallel workers to use (if use_parallel = TRUE)}
 }
 \value{
 tibble with canal and population metrics per administrative area: city, admin_type, population, length_km, length_mi, area_km2, density_km_per_km2, population_density_per_km2
