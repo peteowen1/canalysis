@@ -1,0 +1,32 @@
+url: https://peteowen1.github.io/canalysis/
+
+template:
+  bootstrap: 5
+
+reference:
+  - title: Pipeline
+    desc: Run the full analysis
+    contents:
+      - rank_uk_cities_by_canals
+      - setup_uk_bbox
+      - fetch_uk_canals
+      - fetch_uk_cities
+      - get_city_admin_polygons
+
+  - title: Metrics
+    desc: Compute canal and connectivity metrics
+    contents:
+      - calculate_canal_metrics
+      - calculate_canal_segment_metrics
+
+  - title: Visualisation
+    desc: Static and interactive maps
+    contents:
+      - plot_city_canals_map
+      - plot_all_city_polygons
+      - leaflet_city_canals
+      - plot_canal_ranking
+
+  - title: Utilities
+    contents:
+      - clear_cache

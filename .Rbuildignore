@@ -7,3 +7,7 @@
 ^rosm\.cache$
 ^\.claude\.local\.md$
 ^\.claude$
+^\.github$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

@@ -37,14 +37,41 @@ library(canalysis)
 # Run the full analysis pipeline
 results <- rank_uk_cities_by_canals()
 head(results)
-
-# Plot canals for a specific city
-city_polys <- get_city_admin_polygons(fetch_uk_cities(setup_uk_bbox()))
-canals <- fetch_uk_canals(setup_uk_bbox())
-plot_city_canals_map("Birmingham", city_polys, canals)
 ```
 
 The main output is a tibble with columns: `city`, `admin_type`, `population`, `length_km`, `length_mi`, `area_km2`, `density_km_per_km2`, `population_density_per_km2`.
+
+## Visualisation
+
+```{r viz, eval = FALSE}
+# Step-by-step for plotting (intermediate objects needed)
+uk_bb   <- setup_uk_bbox()
+canals  <- fetch_uk_canals(uk_bb)
+cities  <- fetch_uk_cities(uk_bb)
+city_polys <- get_city_admin_polygons(cities)
+
+# Static ggplot map of a single city
+plot_city_canals_map("Birmingham", city_polys, canals)
+
+# Interactive leaflet map (zoomable, click for canal names + lengths)
+leaflet_city_canals("Birmingham", city_polys, canals)
+
+# Bar chart ranking top cities
+plot_canal_ranking(results, metric = "density_km_per_km2", n = 15)
+
+# UK-wide boundary map colored by area
+plot_all_city_polygons(city_polys)
+```
+
+## Canal Segment Metrics
+
+Analyse canal network connectivity per city:
+
+```{r segments, eval = FALSE}
+seg <- calculate_canal_segment_metrics(city_polys, canals)
+head(seg)
+#> # A tibble: columns: city, n_segments, n_components, mean_length_km, median_length_km, max_length_km
+```
 
 ## Data Sources
 

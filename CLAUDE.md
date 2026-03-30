@@ -35,15 +35,19 @@ The package follows a functional pipeline architecture with 5 main steps:
 ### Main Functions
 
 - `rank_uk_cities_by_canals()` - High-level function that runs the complete analysis pipeline
-- `plot_city_canals_map()` - Generate maps showing canals over city boundaries
+- `calculate_canal_segment_metrics()` - Per-city segment count, connected components, length distribution
+- `plot_city_canals_map()` - Generate static ggplot maps showing canals over city boundaries
 - `plot_all_city_polygons()` - Generate UK-wide map of all administrative boundaries colored by area
+- `leaflet_city_canals()` - Interactive leaflet map with canal name/length popups (requires leaflet)
+- `plot_canal_ranking()` - Horizontal bar chart ranking top cities by any metric
 
 ### Key Design Patterns
 
-- **Caching**: Uses `memoise` with disk caching for expensive OSM queries in `tempdir()/canalysis_cache`
+- **Caching**: Uses `memoise` with persistent disk caching in `tools::R_user_dir("canalysis", "cache")`
 - **Vectorized Spatial Operations**: Uses single `st_intersection()` and `st_area()` calls on entire sf objects with UTM 30N (EPSG:32630) for accurate UK-wide calculations
 - **Error Handling**: Validates geometries using `sf::st_make_valid()`
-- **Population Integration**: Matches OSM administrative boundary names to official population data with fuzzy matching for name variations
+- **Population Integration**: Matches OSM administrative boundary names to official population data via `clean_admin_name()` normalization + fuzzy matching (adist ≤ 4, shared 4-char substring guard)
+- **Optional Dependencies**: `leaflet` is in Suggests (not Imports) for interactive maps; checked at runtime with `requireNamespace()`
 - **Administrative Classification**: Distinguishes between Metropolitan Districts, Unitary Authorities, and Combined Authorities (including Greater London)
 
 ### Data Flow
@@ -58,14 +62,14 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 
 - `R/utils.R` - Shared utilities (suppress_sf_attr_warnings, ensure_chr, ensure_chr_cols, sf_bind_rows, utm_epsg_for)
 - `R/fetch.R` - OSM data acquisition (clear_cache, setup_uk_bbox, fetch_uk_canals, fetch_uk_cities, get_city_admin_polygons)
-- `R/metrics.R` - Computation and orchestration (calculate_canal_metrics, rank_uk_cities_by_canals)
-- `R/plot.R` - Visualisation (plot_city_canals_map, plot_all_city_polygons)
+- `R/metrics.R` - Computation and orchestration (calculate_canal_metrics, calculate_canal_segment_metrics, rank_uk_cities_by_canals)
+- `R/plot.R` - Visualisation (plot_city_canals_map, plot_all_city_polygons, leaflet_city_canals, plot_canal_ranking)
 - `inst/extdata/uk_metropolitan_districts.csv` - Population data for UK administrative areas (151 areas including metropolitan districts, unitary authorities, metropolitan counties, and traditional counties)
 - `analysis/step_by_step_analysis.R` - Script for debugging pipeline execution step-by-step
 - `analysis/canal-search.R` - Load cached intermediate data and explore results
 - `analysis/profile_pipeline.R` - Profile each pipeline step to find bottlenecks
-- `tests/testthat/` - Test suite (requires internet connectivity)
-- `vignettes/` - Package vignette stubs (getting-started.Rmd is a placeholder)
+- `tests/testthat/` - Test suite (online tests skip with `skip_if_offline()`, offline tests run everywhere)
+- `vignettes/getting-started.Rmd` - Showcase-style walkthrough of the analysis pipeline
 
 ## Development Notes
 

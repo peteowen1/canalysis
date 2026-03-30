@@ -217,6 +217,56 @@ leaflet_city_canals <- function(city_name, city_polys, canals_all,
     )
 }
 
+#' Bar chart ranking cities by a canal metric
+#'
+#' Plots a horizontal bar chart of the top N cities ranked by canal length,
+#' density, or segment count. Bars are colored by administrative type.
+#'
+#' @param results tibble from calculate_canal_metrics() or rank_uk_cities_by_canals()
+#' @param metric Column name to rank by: "length_km", "density_km_per_km2",
+#'   "length_mi", or any numeric column. Can also use segment metrics columns
+#'   (n_segments, n_components) if results contain them.
+#' @param n Number of top cities to show (default 20)
+#' @param title Optional plot title. If NULL, auto-generated from metric name.
+#' @return A ggplot object
+#' @export
+plot_canal_ranking <- function(results, metric = "length_km", n = 20, title = NULL) {
+  if (!metric %in% names(results)) {
+    stop("Column '", metric, "' not found. Available: ",
+         paste(names(results)[vapply(results, is.numeric, logical(1))], collapse = ", "))
+  }
+
+  metric_labels <- c(
+    length_km = "Canal Length (km)",
+    length_mi = "Canal Length (miles)",
+    density_km_per_km2 = "Canal Density (km/km\u00b2)",
+    n_segments = "Number of Canal Segments",
+    n_components = "Connected Canal Networks",
+    population_density_per_km2 = "Population Density (per km\u00b2)"
+  )
+
+  x_label <- if (metric %in% names(metric_labels)) metric_labels[[metric]] else metric
+  if (is.null(title)) title <- paste0("Top ", n, " Cities by ", x_label)
+
+  top <- results |>
+    dplyr::filter(!is.na(.data[[metric]]), .data[[metric]] > 0) |>
+    dplyr::slice_max(order_by = .data[[metric]], n = n) |>
+    dplyr::mutate(city = stats::reorder(city, .data[[metric]]))
+
+  p <- ggplot2::ggplot(top, ggplot2::aes(x = .data[[metric]], y = city))
+
+  if ("admin_type" %in% names(top)) {
+    p <- p + ggplot2::geom_col(ggplot2::aes(fill = admin_type), width = 0.7)
+  } else {
+    p <- p + ggplot2::geom_col(fill = "#2166AC", width = 0.7)
+  }
+
+  p +
+    ggplot2::labs(title = title, x = x_label, y = NULL, fill = "Admin Type") +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(legend.position = "bottom")
+}
+
 # Build HTML popup string for each canal segment.
 # Receives an sf data frame with columns: name (character, may be NA)
 # and length_m (numeric, segment length in metres).
