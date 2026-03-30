@@ -55,5 +55,7 @@ test_that("clean_admin_name handles city name variations", {
   expect_equal(clean_admin_name("Newcastle upon Tyne"), "Newcastle on Tyne")
   expect_equal(clean_admin_name("Manchester City"), "Manchester")
   expect_equal(clean_admin_name("Some Borough"), "Some")
+  expect_equal(clean_admin_name("City of Nottingham"), "Nottingham")
+  expect_equal(clean_admin_name("Herefordshire, County of"), "Herefordshire")
   expect_equal(clean_admin_name("Leeds"), "Leeds")
 })

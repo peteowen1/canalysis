@@ -260,17 +260,28 @@ get_city_admin_polygons <- function(admin_polys, min_area_km2 = 0.1, min_area_no
       as.numeric(city_keys$pop_clean)
     )
 
-    # Fuzzy fallback using edit distance for remaining NAs
-    max_edit_dist <- 10L
+    # Fuzzy fallback using edit distance + shared substring guard
+    max_edit_dist <- 4L
+    min_shared_len <- 4L
     unmatched <- which(is.na(city_keys$population))
     for (idx in unmatched) {
       city_clean <- city_keys$clean_name_lower[idx]
-      if (nchar(city_clean) < 4L) next  # skip short names to avoid false matches
+      if (nchar(city_clean) < min_shared_len) next
       dists <- as.integer(utils::adist(city_clean, pop_data$clean_name_lower))
       best_dist <- min(dists)
-      if (best_dist > max_edit_dist) next  # reject poor matches entirely
+      if (best_dist > max_edit_dist) next
       best_idx <- which(dists == best_dist)
-      # If tied, pick the first (alphabetical) — deterministic and auditable
+      # Require a shared substring of min_shared_len chars to block nonsense matches
+      best_idx <- Filter(function(j) {
+        csv_clean <- pop_data$clean_name_lower[j]
+        # Check if any substring of length min_shared_len appears in both
+        any(vapply(
+          seq_len(max(1L, nchar(city_clean) - min_shared_len + 1L)),
+          function(k) grepl(substr(city_clean, k, k + min_shared_len - 1L), csv_clean, fixed = TRUE),
+          logical(1)
+        ))
+      }, best_idx)
+      if (length(best_idx) == 0) next
       best <- best_idx[1]
       pop_val <- pop_data$Population_mid_2022[best]
       if (!is.na(pop_val)) {

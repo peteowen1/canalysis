@@ -28,7 +28,9 @@ ensure_chr_cols <- function(df, cols) {
 }
 
 clean_admin_name <- function(x) {
+  x <- gsub("^City of ", "", x)
   x <- gsub(", City of$", "", x)
+  x <- gsub(", County of$", "", x)
   x <- gsub(" City$", "", x)
   x <- gsub(" Borough$", "", x)
   x <- gsub(" Council$", "", x)
