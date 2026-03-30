@@ -77,9 +77,13 @@ fetch_uk_canals <- function(uk_bb_vec, use_cache = TRUE) {
                     is.na(canal)    | !(canal %in% c("drain","irrigation"))) |>
       dplyr::distinct(osm_id, .keep_all = TRUE)
 
-    # Strip to geometry-only sf — downstream only needs line geometries,
-    # not the dozens of OSM tag columns. This speeds up transform/intersection.
-    result <- sf::st_sf(geometry = sf::st_geometry(filtered)) |>
+    # Keep only canal name + geometry — downstream needs line geometries
+    # and leaflet popups use names. Dropping the dozens of other OSM tag
+    # columns speeds up transform/intersection.
+    result <- sf::st_sf(
+      name = if ("name" %in% names(filtered)) filtered$name else NA_character_,
+      geometry = sf::st_geometry(filtered)
+    ) |>
       sf::st_make_valid()
 
     # Ensure WGS84 CRS is set (OSM data should be in WGS84)

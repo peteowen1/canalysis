@@ -1,8 +1,8 @@
 ---
-title: "getting-started"
+title: "Getting Started with canalysis"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{getting-started}
+  %\VignetteIndexEntry{Getting Started with canalysis}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -14,6 +14,102 @@ knitr::opts_chunk$set(
 )
 ```
 
-```{r setup}
+## Overview
+
+canalysis ranks UK cities by canal infrastructure using OpenStreetMap data. It
+downloads canal geometries and administrative boundaries, enriches them with
+official population estimates, and computes spatial metrics like canal length,
+density, and area coverage.
+
+## Run the pipeline
+
+The main entry point is `rank_uk_cities_by_canals()`. It fetches data from
+the Overpass API, so the first run takes a few minutes. Results are cached to
+disk so subsequent calls are fast.
+
+```{r pipeline, eval = FALSE}
 library(canalysis)
+
+results <- rank_uk_cities_by_canals()
+head(results, 10)
+```
+
+```
+#> # A tibble: 10 x 8
+#>    city                   admin_type       population area_km2 length_km length_mi density_km_per_km2 population_density
+#>    <chr>                  <chr>                 <dbl>    <dbl>     <dbl>     <dbl>              <dbl>              <dbl>
+#>  1 Birmingham             Metropolitan Dis~   1157603    268.      119.      73.8              0.443              4319.
+#>  2 Greater Manchester     Combined Authority  2867800   1276.      113.      70.4              0.0889             2248.
+#>  3 Leeds                  Metropolitan Dis~    812000    552.       88.4     54.9              0.160              1471.
+#>  4 London                 Combined Authority  8866180   1572.       80.2     49.8              0.0510             5640.
+#>  5 Wiltshire              Unitary Authority    510400   3255.       78.9     49.0              0.0242              157.
+#>  ...
+```
+
+The result is a tibble with one row per administrative area. Key columns:
+
+- **city** -- administrative area name
+- **admin_type** -- Metropolitan District, Unitary Authority, or Combined Authority
+- **population** -- mid-2022 population estimate from ONS
+- **area_km2** -- geographic area
+- **length_km / length_mi** -- total canal length within the boundary
+- **density_km_per_km2** -- canal length per unit area
+
+## Explore the results
+
+```{r explore, eval = FALSE}
+# Which cities have the densest canal networks?
+results |>
+  dplyr::filter(length_km > 0) |>
+  dplyr::arrange(dplyr::desc(density_km_per_km2)) |>
+  head(10)
+
+# Total canal length across all areas
+sum(results$length_km)
+```
+
+## Plot a city map
+
+`plot_city_canals_map()` overlays canals on a tile basemap for any city in
+the results. You need the intermediate spatial objects for this, so run the
+pipeline step by step:
+
+```{r stepwise, eval = FALSE}
+uk_bb <- setup_uk_bbox()
+canals <- fetch_uk_canals(uk_bb)
+cities <- fetch_uk_cities(uk_bb)
+city_polys <- get_city_admin_polygons(cities)
+
+plot_city_canals_map("Birmingham", city_polys, canals)
+```
+
+Substring matching works too -- `"Manchester"` matches `"Greater Manchester"`.
+
+## Plot all boundaries
+
+`plot_all_city_polygons()` shows every administrative area colored by size:
+
+```{r allpolys, eval = FALSE}
+plot_all_city_polygons(city_polys)
+```
+
+For offline use (no tile fetching), pass `use_basemap = FALSE`:
+
+```{r allpolys_offline, eval = FALSE}
+plot_all_city_polygons(city_polys, use_basemap = FALSE)
+```
+
+## Caching
+
+OSM queries are cached to `tempdir()/canalysis_cache` by default. To clear
+the cache and re-download fresh data:
+
+```{r cache, eval = FALSE}
+clear_cache()
+```
+
+You can also disable caching entirely:
+
+```{r nocache, eval = FALSE}
+results <- rank_uk_cities_by_canals(use_cache = FALSE)
 ```

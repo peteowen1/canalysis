@@ -29,8 +29,9 @@ Imports:
     stringr,
     tibble,
     units
-Suggests: 
+Suggests:
     knitr,
+    leaflet,
     rmarkdown,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

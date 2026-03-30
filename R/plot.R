@@ -146,3 +146,87 @@ plot_all_city_polygons <- function(city_polys, show_labels = TRUE, label_size = 
 
   p
 }
+
+#' Interactive leaflet map of canals in a city
+#'
+#' Creates a zoomable, pannable HTML map showing canals over a city boundary.
+#' Canal segments display name and length on click. Requires the leaflet package.
+#'
+#' @param city_name Name of the city to map (substring matching supported).
+#' @param city_polys sf object with administrative polygons from get_city_admin_polygons()
+#' @param canals_all sf object with canal data from fetch_uk_canals()
+#' @param canal_color Color for canal lines (default "#2166AC")
+#' @param canal_weight Line thickness for canals (default 3)
+#' @return A leaflet htmlwidget object
+#' @export
+leaflet_city_canals <- function(city_name, city_polys, canals_all,
+                                canal_color = "#2166AC", canal_weight = 3) {
+  if (!requireNamespace("leaflet", quietly = TRUE)) {
+    stop("The 'leaflet' package is required. Install it with: install.packages('leaflet')")
+  }
+
+  # Match city using same logic as plot_city_canals_map
+  city_match <- city_polys[tolower(city_polys$city) == tolower(city_name), ]
+  if (nrow(city_match) == 0) {
+    city_match <- city_polys[stringr::str_detect(tolower(city_polys$city), stringr::fixed(tolower(city_name))), ]
+  }
+  if (nrow(city_match) == 0) {
+    stop("City '", city_name, "' not found in city_polys. Available cities: ",
+         paste(head(city_polys$city, 10), collapse = ", "), "...")
+  }
+  if (nrow(city_match) > 1) {
+    message("Multiple matches for '", city_name, "': ",
+            paste(city_match$city, collapse = ", "), ". Using: ", city_match$city[1])
+    city_match <- city_match[1, ]
+  }
+
+  poly <- city_match
+
+  # Clip canals to city boundary
+  canals_transformed <- sf::st_transform(canals_all, sf::st_crs(poly))
+  canals_clip <- suppress_sf_attr_warnings(
+    sf::st_intersection(canals_transformed, sf::st_geometry(poly))
+  )
+  canals_clip <- canals_clip[!sf::st_is_empty(canals_clip), ]
+
+  # Compute segment lengths in metres for popups
+  canals_utm <- sf::st_transform(canals_clip, 32630)
+  canals_clip$length_m <- as.numeric(sf::st_length(canals_utm))
+
+  # Ensure WGS84 for leaflet
+  canals_wgs <- sf::st_transform(canals_clip, 4326)
+  poly_wgs <- sf::st_transform(poly, 4326)
+
+  # Build popup content for each canal segment
+  canals_wgs$popup <- build_canal_popup(canals_wgs)
+
+  # Build the map
+  leaflet::leaflet() |>
+    leaflet::addProviderTiles(leaflet::providers$CartoDB.Positron) |>
+    leaflet::addPolygons(
+      data = poly_wgs, fill = FALSE,
+      color = "red", weight = 2, opacity = 0.8
+    ) |>
+    leaflet::addPolylines(
+      data = canals_wgs,
+      color = canal_color, weight = canal_weight, opacity = 0.8,
+      popup = ~popup,
+      highlightOptions = leaflet::highlightOptions(
+        weight = canal_weight + 2, color = "#FF4500", bringToFront = TRUE
+      )
+    )
+}
+
+# Build HTML popup string for each canal segment.
+# Receives an sf data frame with columns: name (character, may be NA)
+# and length_m (numeric, segment length in metres).
+# Should return a character vector of HTML strings, one per row.
+build_canal_popup <- function(canals) {
+  canal_name <- ifelse(is.na(canals$name), "Unnamed canal", canals$name)
+  length_km <- round(canals$length_m / 1000, 2)
+  length_mi <- round(canals$length_m / 1609.344, 2)
+  paste0(
+    "<b>", canal_name, "</b><br>",
+    length_km, " km (", length_mi, " mi)"
+  )
+}

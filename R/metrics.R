@@ -82,6 +82,104 @@ calculate_canal_metrics <- function(city_polys, canals_all) {
     dplyr::arrange(dplyr::desc(length_km))
 }
 
+#' Calculate canal segment and connectivity metrics per administrative area
+#'
+#' Computes per-city segment statistics: number of segments, connected components
+#' (separate canal networks), and segment length distribution (mean, median, max).
+#'
+#' @param city_polys sf object with administrative polygons from get_city_admin_polygons()
+#' @param canals_all sf object with canals from fetch_uk_canals()
+#' @return tibble with columns: city, n_segments, n_components, mean_length_km,
+#'   median_length_km, max_length_km
+#' @export
+calculate_canal_segment_metrics <- function(city_polys, canals_all) {
+  if (is.na(sf::st_crs(canals_all))) canals_all <- sf::st_set_crs(canals_all, 4326)
+  if (is.na(sf::st_crs(city_polys))) city_polys <- sf::st_set_crs(city_polys, 4326)
+
+  canals_geom <- sf::st_geometry(canals_all)
+
+  # Pre-filter to bounding box
+  cities_bbox <- sf::st_as_sfc(sf::st_bbox(city_polys))
+  sf::st_crs(cities_bbox) <- sf::st_crs(city_polys)
+  in_bbox <- sf::st_intersects(canals_geom, cities_bbox, sparse = FALSE)[, 1]
+  canals_geom <- canals_geom[in_bbox]
+
+  # Transform to UTM 30N for accurate length
+  city_utm <- sf::st_transform(city_polys, 32630)
+  canals_utm <- sf::st_transform(sf::st_sfc(canals_geom, crs = sf::st_crs(canals_all)), 32630)
+
+  # Clip canals to city polygons
+  clipped <- suppress_sf_attr_warnings(sf::st_intersection(city_utm, canals_utm))
+  clipped <- clipped[!sf::st_is_empty(clipped), ]
+
+  if (nrow(clipped) == 0) {
+    return(
+      city_polys |>
+        sf::st_drop_geometry() |>
+        dplyr::transmute(
+          city,
+          n_segments = 0L, n_components = 0L,
+          mean_length_km = NA_real_, median_length_km = NA_real_,
+          max_length_km = NA_real_
+        )
+    )
+  }
+
+  clipped$length_m <- as.numeric(sf::st_length(clipped))
+
+  # Count connected components per city using st_touches adjacency
+  segment_stats <- clipped |>
+    dplyr::group_by(city) |>
+    dplyr::group_modify(function(segs, key) {
+      n <- nrow(segs)
+      lengths_km <- segs$length_m / 1000
+
+      # Find connected components via adjacency (shared endpoints)
+      if (n == 1L) {
+        n_comp <- 1L
+      } else {
+        touches <- sf::st_touches(segs)
+        # BFS to count components
+        visited <- rep(FALSE, n)
+        n_comp <- 0L
+        for (i in seq_len(n)) {
+          if (visited[i]) next
+          n_comp <- n_comp + 1L
+          queue <- i
+          while (length(queue) > 0) {
+            current <- queue[1]
+            queue <- queue[-1]
+            if (visited[current]) next
+            visited[current] <- TRUE
+            neighbours <- touches[[current]]
+            queue <- c(queue, neighbours[!visited[neighbours]])
+          }
+        }
+      }
+
+      tibble::tibble(
+        n_segments = n,
+        n_components = n_comp,
+        mean_length_km = mean(lengths_km),
+        median_length_km = stats::median(lengths_km),
+        max_length_km = max(lengths_km)
+      )
+    }) |>
+    dplyr::ungroup()
+
+  # Join back cities with no canals
+  all_cities <- city_polys |>
+    sf::st_drop_geometry() |>
+    dplyr::select(city)
+
+  all_cities |>
+    dplyr::left_join(segment_stats, by = "city") |>
+    dplyr::mutate(
+      n_segments = dplyr::coalesce(as.integer(n_segments), 0L),
+      n_components = dplyr::coalesce(as.integer(n_components), 0L)
+    )
+}
+
 #' Rank UK cities by canal length
 #'
 #' Downloads UK canals and administrative boundaries from OpenStreetMap (via Overpass),
