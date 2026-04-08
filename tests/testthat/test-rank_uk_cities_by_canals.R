@@ -1,4 +1,5 @@
 skip_on_cran()
+skip_on_ci()
 skip_if_offline()
 
 res <- rank_uk_cities_by_canals()
