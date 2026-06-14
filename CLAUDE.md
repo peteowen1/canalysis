@@ -68,6 +68,7 @@ OSM administrative boundaries + Canal lines → Population data from CSV → Spa
 - `analysis/step_by_step_analysis.R` - Script for debugging pipeline execution step-by-step
 - `analysis/canal-search.R` - Load cached intermediate data and explore results
 - `analysis/profile_pipeline.R` - Profile each pipeline step to find bottlenecks
+- `analysis/run_check.R` - Run `devtools::check()` for the package
 - `tests/testthat/` - Test suite (online tests skip with `skip_if_offline()`, offline tests run everywhere)
 - `vignettes/getting-started.Rmd` - Showcase-style walkthrough of the analysis pipeline
 
@@ -91,8 +92,3 @@ The main analysis returns a tibble with columns: `city`, `admin_type`, `populati
 - **No function definitions** in `analysis/` scripts — all reusable functions belong in `R/`. Analysis scripts are for interactive workflows only (sourcing, exploring, profiling).
 - **Always use `devtools::load_all()`**, never `library(canalysis)`, in analysis scripts.
 - **RStudio document outline**: Every analysis script must use `# Section Name ----` headers for navigability in the RStudio outline pane.
-
-## Tool Permissions
-
-- Claude Code has full read access to all files and folders within this repository directory
-- No permission prompts are needed for reading any files in the canalysis project
